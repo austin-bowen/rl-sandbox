@@ -1,3 +1,4 @@
 gymnasium
 gymnasium[box2d]
 numpy
+pygame

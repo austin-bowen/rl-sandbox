@@ -1,2 +1,3 @@
-gym
+gymnasium
+gymnasium[box2d]
 numpy

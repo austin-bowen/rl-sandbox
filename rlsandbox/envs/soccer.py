@@ -71,7 +71,10 @@ class SoccerEnv(Env):
         self._state = SoccerState(
             field_size=self.field_size,
             agent=Agent(
-                location=field_center,
+                location=Location2D(
+                    x=self.rng.uniform(0, self.field_size.width),
+                    y=self.rng.uniform(0, self.field_size.height),
+                ),
                 heading=0.,
             ),
             ball=Ball(

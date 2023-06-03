@@ -1,7 +1,5 @@
 from math import cos, sin
 
-import pygame
-
 from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, BLACK, WHITE, BLUE
 from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, Agent
 from rlsandbox.types import Location2D, Size2D

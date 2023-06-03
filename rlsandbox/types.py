@@ -55,6 +55,9 @@ class Vector2D:
         else:
             return Vector2D(op(self.x, other), op(self.y, other))
 
+    def euclidean_dist(self, other: 'Vector2D') -> float:
+        return ((self.x - other.x) ** 2 + (self.y - other.y) ** 2) ** 0.5
+
 
 Location2D = Vector2D
 Point2D = Vector2D
@@ -68,6 +71,10 @@ class Velocity2D:
     @staticmethod
     def zero() -> 'Velocity2D':
         return Velocity2D(0., 0.)
+
+    @property
+    def magnitude(self) -> float:
+        return (self.dx ** 2 + self.dy ** 2) ** 0.5
 
 
 @dataclass

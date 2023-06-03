@@ -46,6 +46,10 @@ class Pygame2DEnvRenderer(EnvRenderer):
         self._clear()
         self.draw_state(state)
         pygame.display.flip()
+
+        for _ in pygame.event.get():
+            pass
+
         self._clock.tick(self.fps)
 
     @abstractmethod

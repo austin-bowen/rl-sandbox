@@ -1,5 +1,6 @@
+import queue
 import time
-from multiprocessing import Event, Pipe, Process
+from multiprocessing import Event, Queue
 from threading import Thread
 from typing import Optional
 
@@ -14,8 +15,7 @@ class Monitor(Thread):
     env_renderer: EnvRenderer
     agent: Optional[Agent]
 
-    _parent_pipe: Pipe
-    _child_pipe: Pipe
+    _agent_queue: Queue
     _should_stop: Event
 
     def __init__(self, env: Env, env_renderer: EnvRenderer, **kwargs):
@@ -25,7 +25,7 @@ class Monitor(Thread):
         self.env_renderer = env_renderer
         self.agent = None
 
-        self._parent_pipe, self._child_pipe = Pipe()
+        self._agent_queue = Queue(1)
         self._should_stop = Event()
 
     def __enter__(self) -> 'Monitor':
@@ -40,7 +40,13 @@ class Monitor(Thread):
         self._should_stop.set()
 
     def set_agent(self, agent: Agent) -> None:
-        self._parent_pipe.send(agent)
+        try:
+            while True:
+                self._agent_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        self._agent_queue.put(agent)
 
     def run(self) -> None:
         while not self._should_stop.is_set():
@@ -53,8 +59,10 @@ class Monitor(Thread):
             self._play_game()
 
     def _update_agent(self) -> None:
-        if self._child_pipe.poll():
-            self.agent = self._child_pipe.recv()
+        try:
+            self.agent = self._agent_queue.get_nowait()
+        except queue.Empty:
+            pass
 
     def _play_game(self) -> None:
         state = self.env.reset()

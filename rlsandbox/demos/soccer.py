@@ -2,6 +2,7 @@ import random
 from itertools import count
 from multiprocessing import get_context
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -16,14 +17,13 @@ def main(pool):
     field_size = Size2D(40, 20)
     env = SoccerEnv(field_size=field_size, max_steps=100)
     monitor_env = SoccerEnv(field_size=field_size, max_steps=300)
-    # monitor_env = env
 
     env_renderer = SoccerEnvRenderer(monitor_env, fps=30, scale=30)
 
     agent = ANNSoccerAgent()
     agent.reset()
 
-    games_per_eval = 50
+    games_per_eval = 64
 
     new_bests_found = 0
 
@@ -38,18 +38,27 @@ def main(pool):
             scores = pool.starmap(evaluate_agent, ((env, agent, new_agent) for _ in range(games_per_eval)))
             agent_reward = sum(score[0] for score in scores) / games_per_eval
             new_agent_reward = sum(score[1] for score in scores) / games_per_eval
-            # reward = sum(rewards) / games_per_eval
-            # reward = sum(evaluate_agent(env, new_agent) for _ in range(games_per_eval)) / games_per_eval
+            agent_reward = tuple(agent_reward)
+            new_agent_reward = tuple(new_agent_reward)
 
-            # print(f'Average reward: {reward:8.3f}; best reward: {best_reward:8.3f}')
-            print(f'Agent reward: {agent_reward:8.3f}; '
-                  f'new agent reward: {new_agent_reward:8.3f}; '
-                  f'new bests found: {new_bests_found}')
+            new_agent_wins = sum(
+                tuple(score[1]) >= tuple(score[0]) for score in scores
+            )
+            agent_wins = games_per_eval - new_agent_wins
+
+            print(
+                f'Agent reward: {agent_reward};\t'
+                f'new agent reward: {new_agent_reward};\t'
+                f'agent wins: {agent_wins};\t'
+                f'new agent wins: {new_agent_wins};\t'
+                f'new bests found: {new_bests_found};\t'
+            )
 
             if new_agent_reward >= agent_reward:
+                # if new_agent_wins > agent_wins:
+                # if new_agent_reward >= agent_reward and new_agent_wins >= agent_wins:
                 new_bests_found += 1
 
-                # best_reward = reward
                 agent = new_agent
                 monitor.set_agent(agent)
 
@@ -57,8 +66,9 @@ def main(pool):
 def mutate_agent(agent: ANNSoccerAgent):
     new_agent = ANNSoccerAgent()
 
-    weight_change = 0.05
-    weight_decay = 10 / (10 + weight_change)
+    weight_change = 0.03
+    max_weight = 10
+    weight_decay = max_weight / (max_weight + weight_change)
     dropout = 0.
 
     for layer, new_layer in zip(agent.model.layers, new_agent.model.layers):
@@ -69,9 +79,10 @@ def mutate_agent(agent: ANNSoccerAgent):
         change = nn.functional.dropout(change, p=dropout)
         new_layer.weight = nn.Parameter((layer.weight + change) * weight_decay)
 
-        change = weight_change * (2 * torch.rand(layer.bias.shape) - 1)
-        change = nn.functional.dropout(change, p=dropout)
-        new_layer.bias = nn.Parameter((layer.bias + change) * weight_decay)
+        if layer.bias is not None:
+            change = weight_change * (2 * torch.rand(layer.bias.shape) - 1)
+            change = nn.functional.dropout(change, p=dropout)
+            new_layer.bias = nn.Parameter((layer.bias + change) * weight_decay)
 
     return new_agent
 
@@ -84,7 +95,7 @@ def evaluate_agent(env, best_agent, new_agent):
     for agent in [best_agent, new_agent]:
         env.rng.seed(env_seed)
         state = env.reset()
-        total_reward = 0.
+        total_reward = np.zeros(2)
 
         agent.reset()
 
@@ -121,5 +132,5 @@ def display_game(env, agent, env_renderer):
 
 
 if __name__ == '__main__':
-    with get_context('fork').Pool(maxtasksperchild=100) as pool:
+    with get_context('fork').Pool() as pool:
         main(pool)

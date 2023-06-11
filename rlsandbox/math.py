@@ -1,5 +1,7 @@
 from math import pi
 
+import numpy as np
+
 
 def trunc_angle(angle: float) -> float:
     """
@@ -31,3 +33,7 @@ def trunc_angle(angle: float) -> float:
     angle -= pi
 
     return angle
+
+
+def unit_tanh(x):
+    return (np.tanh(x) + 1) / 2

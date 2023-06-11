@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from math import cos, sin, atan2, pi
 from random import Random
 
+import numpy as np
+
 from rlsandbox.envs.env import Env
 from rlsandbox.types import StateChange, Size2D, Location2D, Velocity2D
 
@@ -14,7 +16,7 @@ class SoccerState:
     ball: 'Ball'
     goal: 'Goal'
     steps: int
-    total_reward: float = 0.
+    total_reward: float = np.zeros(2)
 
 
 @dataclass
@@ -52,6 +54,7 @@ class SoccerEnv(Env):
     field_size: Size2D
     max_steps: int
     goal_reward: float
+    step_reward: float
     kick_reward: float
     max_dist_to_ball: float
     rng: Random
@@ -63,6 +66,7 @@ class SoccerEnv(Env):
             field_size: Size2D,
             max_steps: int,
             goal_reward: float = 10.,
+            step_reward: float = -0.01,
             kick_reward: float = 0.1,
             max_dist_to_ball: float = 1.,
             rng: Random = None
@@ -70,6 +74,7 @@ class SoccerEnv(Env):
         self.field_size = field_size
         self.max_steps = max_steps
         self.goal_reward = goal_reward
+        self.step_reward = step_reward
         self.kick_reward = kick_reward
         self.max_dist_to_ball = max_dist_to_ball
         self.rng = rng or Random()
@@ -98,7 +103,7 @@ class SoccerEnv(Env):
                 location=Location2D(
                     # x=field_center.x * 1.5,
                     # y=field_center.y,
-                    x=self.rng.uniform(0, self.field_size.width),
+                    x=self.rng.uniform(0, self.field_size.width - 0.5),
                     y=self.rng.uniform(0, self.field_size.height),
                 ),
                 velocity=Velocity2D.zero(),
@@ -197,10 +202,12 @@ class SoccerEnv(Env):
         return dist <= self.max_dist_to_ball ** 2
 
     def _get_reward(self, prev_state: SoccerState, action: SoccerAction) -> float:
-        reward = 0.
+        reward = np.zeros(2)
+
+        reward[0] += self.step_reward
 
         if self._ball_is_in_goal():
-            reward += self.goal_reward
+            reward[0] += self.goal_reward
         # elif self._ball_is_out_of_bounds():
         #     reward -= self.goal_reward
 
@@ -212,10 +219,11 @@ class SoccerEnv(Env):
             # if diff_dist_to_ball < 0:
             #     diff_dist_to_ball *= 2
 
-            reward += diff_dist_to_ball
+            reward[1] += diff_dist_to_ball
 
         if action.kick_strength > 0 and self._agent_is_near_ball():
-            reward += self.kick_reward * action.kick_strength
+            reward[1] += self.kick_reward * action.kick_strength
+            # reward[1] += self.kick_reward * (1 + action.kick_strength) ** 2
         # # TODO REMOVE THIS?
         # elif action.kick_strength > 0:
         #     reward -= action.kick_strength * 0.1
@@ -224,9 +232,9 @@ class SoccerEnv(Env):
         prev_dist_ball_to_goal = prev_state.ball.location.euclidean_dist(goal_center)
         curr_dist_ball_to_goal = self._state.ball.location.euclidean_dist(goal_center)
         diff_dist_ball_to_goal = prev_dist_ball_to_goal - curr_dist_ball_to_goal
-        reward += diff_dist_ball_to_goal * (1 if diff_dist_ball_to_goal > 0 else .5)
+        reward[1] += diff_dist_ball_to_goal * (1 if diff_dist_ball_to_goal > 0 else .5)
 
-        reward -= abs(action.turn_angle) * 0.05
+        reward[1] -= abs(action.turn_angle) * 0.05
 
         return reward
 

@@ -1,26 +1,96 @@
 import random
+from abc import abstractmethod
 from itertools import count
-from multiprocessing import get_context
 
 import numpy as np
 import torch
 from torch import nn
 
-from rlsandbox.agents.soccer import ANNSoccerAgent
-from rlsandbox.envs.renderers.soccer_renderer import SoccerEnvRenderer
-from rlsandbox.envs.soccer import SoccerEnv
+from rlsandbox.agents.agent import Agent
+from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, SimpleTeamSoccerAgent, BaseTeamSoccerAgent
+from rlsandbox.envs.renderers.team_soccer_renderer import TeamSoccerEnvRenderer
+from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions
 from rlsandbox.monitor import Monitor
 from rlsandbox.types import Size2D
 
 
+class AgentMux:
+    @abstractmethod
+    def __getitem__(self, item: AgentId) -> BaseTeamSoccerAgent:
+        ...
+
+    @abstractmethod
+    def agents(self) -> list[BaseTeamSoccerAgent]:
+        ...
+
+
+class SingleAgentMux(AgentMux):
+    def __init__(self, agent: BaseTeamSoccerAgent):
+        self.agent = agent
+
+    def __getitem__(self, item: AgentId) -> BaseTeamSoccerAgent:
+        return self.agent
+
+    def agents(self) -> list[BaseTeamSoccerAgent]:
+        return [self.agent]
+
+
+class UberAgent(Agent):
+    agent_mux: AgentMux
+
+    def __init__(self, agent_mux: AgentMux):
+        self.agent_mux = agent_mux
+
+    def reset(self) -> None:
+        for agent in self.agent_mux.agents():
+            agent.reset()
+
+    def get_action(self, state: TeamSoccerState) -> SoccerActions:
+        return {
+            agent_id: self.agent_mux[agent_id].get_action(state, agent_id)
+            for agent_id in state.agent_ids
+        }
+
+
+def main_simple():
+    field_size = Size2D(40, 20)
+    env = TeamSoccerEnv(
+        field_size=field_size,
+        left_team_size=1,
+        right_team_size=1,
+        max_steps=300,
+    )
+
+    env_renderer = TeamSoccerEnvRenderer(env, fps=30, scale=30)
+
+    agent = SimpleTeamSoccerAgent()
+    agent_mux = SingleAgentMux(agent)
+    uber_agent = UberAgent(agent_mux)
+
+    with Monitor(env, env_renderer) as monitor:
+        monitor.set_agent(uber_agent)
+        input('Press Enter to exit')
+
+
 def main(pool):
     field_size = Size2D(40, 20)
-    env = SoccerEnv(field_size=field_size, max_steps=100)
-    monitor_env = SoccerEnv(field_size=field_size, max_steps=300)
+    env = TeamSoccerEnv(
+        field_size=field_size,
+        left_team_size=0,
+        right_team_size=1,
+        max_steps=100,
+    )
 
-    env_renderer = SoccerEnvRenderer(monitor_env, fps=30, scale=30)
+    monitor_env = TeamSoccerEnv(
+        field_size=field_size,
+        left_team_size=env.left_team_size,
+        right_team_size=env.right_team_size,
+        max_steps=300,
+    )
 
-    agent = ANNSoccerAgent()
+    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=30, scale=30)
+
+    agent = ANNTeamSoccerAgent()
     agent.reset()
 
     games_per_eval = 64
@@ -63,8 +133,8 @@ def main(pool):
                 monitor.set_agent(agent)
 
 
-def mutate_agent(agent: ANNSoccerAgent):
-    new_agent = ANNSoccerAgent()
+def mutate_agent(agent: ANNTeamSoccerAgent):
+    new_agent = ANNTeamSoccerAgent()
 
     weight_change = 0.03
     max_weight = 10
@@ -115,5 +185,6 @@ def evaluate_agent(env, best_agent, new_agent):
 
 
 if __name__ == '__main__':
-    with get_context('fork').Pool() as pool:
-        main(pool)
+    main_simple()
+    # with get_context('fork').Pool() as pool:
+    #     main(pool)

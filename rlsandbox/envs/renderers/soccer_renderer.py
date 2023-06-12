@@ -1,7 +1,7 @@
 from math import cos, sin
 
 from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, BLACK, WHITE, BLUE
-from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, Agent
+from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, SoccerAgent
 from rlsandbox.types import Location2D, Size2D
 
 SOCCER_FIELD_GREEN = (100, 200, 50)
@@ -19,7 +19,8 @@ class SoccerEnvRenderer(Pygame2DEnvRenderer):
         super().__init__(canvas_size=canvas_size, scale=scale, **kwargs)
         self.env = env
 
-    def draw_state(self, state: SoccerState) -> None:
+    def draw_env(self, env: SoccerEnv) -> None:
+        state = env.get_state()
         self._draw_field(state)
         self._draw_agent(state.agent)
         self._draw_ball(state.ball)
@@ -36,7 +37,7 @@ class SoccerEnvRenderer(Pygame2DEnvRenderer):
     def _draw_ball(self, ball: Ball) -> None:
         self._draw_circle(WHITE, ball.location, 0.25)
 
-    def _draw_agent(self, agent: Agent) -> None:
+    def _draw_agent(self, agent: SoccerAgent) -> None:
         agent_radius = self.env.max_dist_to_ball
         self._draw_circle(BLUE, agent.location, agent_radius)
 

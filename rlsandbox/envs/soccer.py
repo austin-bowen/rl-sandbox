@@ -12,7 +12,7 @@ from rlsandbox.types import StateChange, Size2D, Location2D, Velocity2D
 @dataclass
 class SoccerState:
     field_size: Size2D
-    agent: 'Agent'
+    agent: 'SoccerAgent'
     ball: 'Ball'
     goal: 'Goal'
     steps: int
@@ -20,7 +20,7 @@ class SoccerState:
 
 
 @dataclass
-class Agent:
+class SoccerAgent:
     location: Location2D
     heading: float
 
@@ -81,6 +81,9 @@ class SoccerEnv(Env):
 
         self.reset()
 
+    def get_state(self) -> SoccerState:
+        return self._state
+
     def reset(self) -> SoccerState:
         field_center = self.field_size.center
 
@@ -88,7 +91,7 @@ class SoccerEnv(Env):
 
         self._state = SoccerState(
             field_size=self.field_size,
-            agent=Agent(
+            agent=SoccerAgent(
                 location=Location2D(
                     # x=field_center.x,
                     x=self.rng.uniform(field_center.x / 2, field_center.x),

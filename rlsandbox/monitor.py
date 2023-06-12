@@ -70,7 +70,7 @@ class Monitor(Thread):
         self.agent.reset()
 
         while True:
-            self.env_renderer.render(state)
+            self.env_renderer.render(self.env)
 
             action = self.agent.get_action(state)
 
@@ -80,4 +80,4 @@ class Monitor(Thread):
             if state_change.done:
                 break
 
-        self.env_renderer.render(state_change.next_state)
+        self.env_renderer.render(self.env)

@@ -18,24 +18,24 @@ class TeamId(Enum):
 
 
 @dataclass
-class SoccerState:
+class TeamSoccerState:
     field_size: Size2D
-    left_team_agents: List['Agent']
-    right_team_agents: List['Agent']
+    left_team_agents: List['TeamSoccerAgent']
+    right_team_agents: List['TeamSoccerAgent']
     ball: 'Ball'
     left_goal: 'Goal'
     right_goal: 'Goal'
     steps: int
 
     @property
-    def agents(self) -> List['Agent']:
+    def agents(self) -> List['TeamSoccerAgent']:
         return self.left_team_agents + self.right_team_agents
 
     @property
     def agent_ids(self) -> List['AgentId']:
         return [agent.id for agent in self.agents]
 
-    def agent_with_id(self, agent_id: 'AgentId') -> 'Agent':
+    def agent_with_id(self, agent_id: 'AgentId') -> 'TeamSoccerAgent':
         for agent in self.agents:
             if agent.id == agent_id:
                 return agent
@@ -44,7 +44,7 @@ class SoccerState:
 
 
 @dataclass
-class Agent:
+class TeamSoccerAgent:
     id: 'AgentId'
     location: Location2D
     heading: float
@@ -77,7 +77,7 @@ class TeamSoccerEnv(Env):
     max_dist_to_ball: float
     rng: Random
 
-    _state: SoccerState
+    _state: TeamSoccerState
 
     def __init__(
             self,
@@ -106,12 +106,15 @@ class TeamSoccerEnv(Env):
 
         self.reset()
 
-    def reset(self) -> SoccerState:
+    def get_state(self) -> TeamSoccerState:
+        return self._state
+
+    def reset(self) -> TeamSoccerState:
         field_center = self.field_size.center
 
         goal_width = self.field_size.height / 3
 
-        self._state = SoccerState(
+        self._state = TeamSoccerState(
             field_size=self.field_size,
             left_team_agents=self._team_generator(TeamId.LEFT, self.left_team_size),
             right_team_agents=self._team_generator(TeamId.RIGHT, self.right_team_size),
@@ -149,9 +152,9 @@ class TeamSoccerEnv(Env):
 
         return self._state
 
-    def _team_generator(self, team: TeamId, size: int) -> List[Agent]:
+    def _team_generator(self, team: TeamId, size: int) -> List[TeamSoccerAgent]:
         return [
-            Agent(
+            TeamSoccerAgent(
                 id=AgentId(team, number),
                 location=Location2D(
                     x=self.rng.uniform(0, self.field_size.width),
@@ -247,8 +250,8 @@ class TeamSoccerEnv(Env):
         ball.velocity.dx *= ball.speed_decay
         ball.velocity.dy *= ball.speed_decay
 
-    def _get_kick(self, actions: SoccerActions) -> Tuple[Optional[Agent], float]:
-        kicking_agents: List[Tuple[Agent, float]] = []
+    def _get_kick(self, actions: SoccerActions) -> Tuple[Optional[TeamSoccerAgent], float]:
+        kicking_agents: List[Tuple[TeamSoccerAgent, float]] = []
 
         for agent_id, action in actions.items():
             agent = self._state.agent_with_id(agent_id)
@@ -259,19 +262,19 @@ class TeamSoccerEnv(Env):
 
         return self.rng.choice(kicking_agents) if kicking_agents else (None, 0)
 
-    def _agent_is_near_ball(self, agent: Agent) -> bool:
+    def _agent_is_near_ball(self, agent: TeamSoccerAgent) -> bool:
         ball = self._state.ball
         dist = (agent.location.x - ball.location.x) ** 2 + (agent.location.y - ball.location.y) ** 2
 
         return dist <= self.max_dist_to_ball ** 2
 
-    def _get_rewards(self, prev_state: SoccerState, actions: SoccerActions) -> Rewards:
+    def _get_rewards(self, prev_state: TeamSoccerState, actions: SoccerActions) -> Rewards:
         return {
             agent_id: self._get_reward(prev_state, agent_id, action)
             for agent_id, action in actions.items()
         }
 
-    def _get_reward(self, prev_state: SoccerState, agent_id: AgentId, action: SoccerAction) -> float:
+    def _get_reward(self, prev_state: TeamSoccerState, agent_id: AgentId, action: SoccerAction) -> float:
         agent = self._state.agent_with_id(agent_id)
         reward = np.zeros(2)
 
@@ -330,11 +333,11 @@ class TeamSoccerEnv(Env):
                 or ball.location.y > self.field_size.height
         )
 
-    def _ball_is_in_opponent_goal(self, agent: Agent) -> bool:
+    def _ball_is_in_opponent_goal(self, agent: TeamSoccerAgent) -> bool:
         opponent_team = TeamId.LEFT if agent.id.team == TeamId.RIGHT else TeamId.RIGHT
         return self._ball_is_in_goal(opponent_team)
 
-    def _ball_is_in_team_goal(self, agent: Agent) -> bool:
+    def _ball_is_in_team_goal(self, agent: TeamSoccerAgent) -> bool:
         return self._ball_is_in_goal(agent.id.team)
 
     def _ball_is_in_goal(self, team: TeamId) -> bool:

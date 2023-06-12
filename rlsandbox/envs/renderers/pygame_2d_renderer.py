@@ -3,8 +3,9 @@ from typing import Tuple
 
 import pygame
 
+from rlsandbox.envs.env import Env
 from rlsandbox.envs.renderers.renderer import EnvRenderer
-from rlsandbox.types import State, Size2D, Location2D
+from rlsandbox.types import Size2D, Location2D
 
 BLACK = (0, 0, 0)
 BLUE = (0, 0, 255)
@@ -42,9 +43,9 @@ class Pygame2DEnvRenderer(EnvRenderer):
 
         return self._canvas
 
-    def render(self, state: State) -> None:
+    def render(self, env: Env) -> None:
         self._clear()
-        self.draw_state(state)
+        self.draw_env(env)
         pygame.display.flip()
 
         for _ in pygame.event.get():
@@ -53,7 +54,7 @@ class Pygame2DEnvRenderer(EnvRenderer):
         self._clock.tick(self.fps)
 
     @abstractmethod
-    def draw_state(self, state: State) -> None:
+    def draw_env(self, env: Env) -> None:
         ...
 
     def _clear(self) -> None:

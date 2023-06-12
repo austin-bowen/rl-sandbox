@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from rlsandbox.agents.agent import Agent
-from rlsandbox.envs.soccer import SoccerState, SoccerAction, Agent as EnvAgent
+from rlsandbox.envs.soccer import SoccerState, SoccerAction, SoccerAgent as EnvAgent
 from rlsandbox.math import trunc_angle, unit_tanh
 from rlsandbox.types import Location2D
 

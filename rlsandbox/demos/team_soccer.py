@@ -1,17 +1,18 @@
-import random
 from abc import abstractmethod
 from itertools import count
+from multiprocessing import get_context
+from typing import Tuple
 
-import numpy as np
 import torch
 from torch import nn
 
 from rlsandbox.agents.agent import Agent
 from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, SimpleTeamSoccerAgent, BaseTeamSoccerAgent
+from rlsandbox.env_runner import EnvRunner
 from rlsandbox.envs.renderers.team_soccer_renderer import TeamSoccerEnvRenderer
 from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions, TeamId
 from rlsandbox.monitor import Monitor
-from rlsandbox.types import Size2D
+from rlsandbox.types import Size2D, Reward
 
 
 class AgentMux:
@@ -89,7 +90,7 @@ def main(pool):
     field_size = Size2D(40, 20)
     env = TeamSoccerEnv(
         field_size=field_size,
-        left_team_size=0,
+        left_team_size=1,
         right_team_size=1,
         max_steps=100,
     )
@@ -103,15 +104,16 @@ def main(pool):
 
     env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=30, scale=30)
 
-    agent = ANNTeamSoccerAgent()
-    agent.reset()
+    agent = ANNTeamSoccerAgent(obs_dim=21)
+    agent_mux = OneAgentPerTeamMux(agent, agent)
+    uber_agent = UberAgent(agent_mux)
 
     games_per_eval = 64
 
     new_bests_found = 0
 
     with Monitor(monitor_env, env_renderer) as monitor:
-        monitor.set_agent(agent)
+        monitor.set_agent(uber_agent)
 
         for gens in count():
             print(f'Generation {gens}')
@@ -143,11 +145,14 @@ def main(pool):
                 new_bests_found += 1
 
                 agent = new_agent
-                monitor.set_agent(agent)
+
+                agent_mux.left_agent = agent_mux.right_agent
+                agent_mux.right_agent = agent
+                monitor.set_agent(uber_agent)
 
 
 def mutate_agent(agent: ANNTeamSoccerAgent):
-    new_agent = ANNTeamSoccerAgent()
+    new_agent = ANNTeamSoccerAgent(obs_dim=agent.model.obs_dim)
 
     weight_change = 0.03
     max_weight = 10
@@ -170,34 +175,32 @@ def mutate_agent(agent: ANNTeamSoccerAgent):
     return new_agent
 
 
-def evaluate_agent(env, best_agent, new_agent):
-    env_seed = random.randint(0, 2 ** 32 - 1)
+def evaluate_agent(env, best_agent, new_agent) -> Tuple[Reward, Reward]:
+    env.rng.seed()
 
-    scores = []
+    agent_mux = OneAgentPerTeamMux(left_agent=best_agent, right_agent=new_agent)
+    uber_agent = UberAgent(agent_mux)
+    runner = EnvRunner(env, uber_agent)
 
-    for agent in [best_agent, new_agent]:
-        env.rng.seed(env_seed)
-        state = env.reset()
-        total_reward = np.zeros(2)
+    state_changes = runner.run()
+    all_rewards = [state_change.reward for state_change in state_changes]
 
-        agent.reset()
+    left_rewards = []
+    right_rewards = []
+    for agent_rewards in all_rewards:
+        for agent_id, reward in agent_rewards.items():
+            if agent_id.team == TeamId.LEFT:
+                left_rewards.append(reward)
+            else:
+                right_rewards.append(reward)
 
-        while True:
-            action = agent.get_action(state)
+    total_left_rewards = sum(left_rewards)
+    total_right_rewards = sum(right_rewards)
 
-            state_change = env.step(action)
-
-            total_reward += state_change.reward
-
-            if state_change.done:
-                break
-
-        scores.append(total_reward)
-
-    return scores
+    return total_left_rewards, total_right_rewards
 
 
 if __name__ == '__main__':
-    main_simple()
-    # with get_context('fork').Pool() as pool:
-    #     main(pool)
+    # main_simple()
+    with get_context('fork').Pool() as pool:
+        main(pool)

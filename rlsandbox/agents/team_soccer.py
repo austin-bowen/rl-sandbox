@@ -151,8 +151,12 @@ class ANNTeamSoccerAgent(BaseTeamSoccerAgent):
 
 
 class SoccerAgentModel(nn.Module):
+    obs_dim: int
+
     def __init__(self, obs_dim: int):
         super().__init__()
+
+        self.obs_dim = obs_dim
 
         self.layers = nn.Sequential(
             nn.Linear(obs_dim, 3),

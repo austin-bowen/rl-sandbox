@@ -1,3 +1,4 @@
+import random
 from abc import abstractmethod
 from itertools import count
 from multiprocessing import get_context
@@ -105,7 +106,7 @@ def main(pool):
     env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=30, scale=30)
 
     agent = ANNTeamSoccerAgent(obs_dim=21)
-    agent_mux = OneAgentPerTeamMux(agent, agent)
+    agent_mux = SingleAgentMux(agent)
     uber_agent = UberAgent(agent_mux)
 
     games_per_eval = 64
@@ -146,8 +147,7 @@ def main(pool):
 
                 agent = new_agent
 
-                agent_mux.left_agent = agent_mux.right_agent
-                agent_mux.right_agent = agent
+                agent_mux.agent = agent
                 monitor.set_agent(uber_agent)
 
 
@@ -176,8 +176,13 @@ def mutate_agent(agent: ANNTeamSoccerAgent):
 
 
 def evaluate_agent(env, best_agent, new_agent) -> Tuple[Reward, Reward]:
-    env.rng.seed()
+    env_seed = random.randint(0, 2 ** 32 - 1)
 
+    best_agent_rewards = []
+    new_agent_rewards = []
+
+    # Play a game with the best agent on the left and the new agent on the right
+    env.rng.seed(env_seed)
     agent_mux = OneAgentPerTeamMux(left_agent=best_agent, right_agent=new_agent)
     uber_agent = UberAgent(agent_mux)
     runner = EnvRunner(env, uber_agent)
@@ -185,19 +190,33 @@ def evaluate_agent(env, best_agent, new_agent) -> Tuple[Reward, Reward]:
     state_changes = runner.run()
     all_rewards = [state_change.reward for state_change in state_changes]
 
-    left_rewards = []
-    right_rewards = []
     for agent_rewards in all_rewards:
         for agent_id, reward in agent_rewards.items():
             if agent_id.team == TeamId.LEFT:
-                left_rewards.append(reward)
+                best_agent_rewards.append(reward)
             else:
-                right_rewards.append(reward)
+                new_agent_rewards.append(reward)
 
-    total_left_rewards = sum(left_rewards)
-    total_right_rewards = sum(right_rewards)
+    # Play a game with the new agent on the left and the best agent on the right
+    env.rng.seed(env_seed)
+    agent_mux = OneAgentPerTeamMux(left_agent=new_agent, right_agent=best_agent)
+    uber_agent = UberAgent(agent_mux)
+    runner = EnvRunner(env, uber_agent)
 
-    return total_left_rewards, total_right_rewards
+    state_changes = runner.run()
+    all_rewards = [state_change.reward for state_change in state_changes]
+
+    for agent_rewards in all_rewards:
+        for agent_id, reward in agent_rewards.items():
+            if agent_id.team == TeamId.RIGHT:
+                best_agent_rewards.append(reward)
+            else:
+                new_agent_rewards.append(reward)
+
+    total_best_agent_rewards = sum(best_agent_rewards)
+    total_new_agent_rewards = sum(new_agent_rewards)
+
+    return total_best_agent_rewards, total_new_agent_rewards
 
 
 if __name__ == '__main__':

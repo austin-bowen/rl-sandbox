@@ -15,8 +15,9 @@ class SoccerState:
     agent: 'SoccerAgent'
     ball: 'Ball'
     goal: 'Goal'
-    steps: int
+    steps: int = 0
     total_reward: float = np.zeros(2)
+    done: bool = False
 
 
 @dataclass
@@ -57,6 +58,7 @@ class SoccerEnv(Env):
     step_reward: float
     kick_reward: float
     max_dist_to_ball: float
+    max_ball_speed: float
     rng: Random
 
     _state: SoccerState
@@ -69,6 +71,7 @@ class SoccerEnv(Env):
             step_reward: float = -0.01,
             kick_reward: float = 0.1,
             max_dist_to_ball: float = 1.,
+            max_ball_speed: float = 2.,
             rng: Random = None
     ):
         self.field_size = field_size
@@ -77,6 +80,7 @@ class SoccerEnv(Env):
         self.step_reward = step_reward
         self.kick_reward = kick_reward
         self.max_dist_to_ball = max_dist_to_ball
+        self.max_ball_speed = max_ball_speed
         self.rng = rng or Random()
 
         self.reset()
@@ -121,7 +125,6 @@ class SoccerEnv(Env):
                     y=field_center.y - goal_width / 2,
                 ),
             ),
-            steps=0,
         )
 
         return self._state
@@ -135,15 +138,13 @@ class SoccerEnv(Env):
 
         self._state.steps += 1
         self._state.total_reward += reward
-
-        done = self._is_done()
+        self._state.done = self._is_done()
 
         result = StateChange(
             state=prev_state,
             action=action,
             reward=reward,
             next_state=self._state,
-            done=done,
         )
 
         return result
@@ -166,16 +167,17 @@ class SoccerEnv(Env):
         ball = self._state.ball
 
         if self._agent_is_near_ball():
-            agent = self._state.agent
+            ball_speed = self.max_ball_speed * action.kick_strength
 
+            agent = self._state.agent
             angle_from_agent_to_ball = atan2(
                 ball.location.y - agent.location.y,
                 ball.location.x - agent.location.x,
             )
 
             ball.velocity = Velocity2D(
-                dx=action.kick_strength * cos(angle_from_agent_to_ball),
-                dy=action.kick_strength * sin(angle_from_agent_to_ball),
+                dx=ball_speed * cos(angle_from_agent_to_ball),
+                dy=ball_speed * sin(angle_from_agent_to_ball),
             )
 
         ball.location.x += ball.velocity.dx

@@ -25,7 +25,8 @@ class TeamSoccerState:
     ball: 'Ball'
     left_goal: 'Goal'
     right_goal: 'Goal'
-    steps: int
+    steps: int = 0
+    done: bool = False
 
     @property
     def agents(self) -> List['TeamSoccerAgent']:
@@ -74,6 +75,7 @@ class TeamSoccerEnv(Env):
     goal_reward: float
     step_reward: float
     kick_reward: float
+    max_ball_speed: float
     max_dist_to_ball: float
     rng: Random
 
@@ -88,6 +90,7 @@ class TeamSoccerEnv(Env):
             goal_reward: float = 10.,
             step_reward: float = -0.01,
             kick_reward: float = 0.1,
+            max_ball_speed: float = 2.,
             max_dist_to_ball: float = 1.,
             rng: Random = None
     ):
@@ -101,6 +104,7 @@ class TeamSoccerEnv(Env):
         self.goal_reward = goal_reward
         self.step_reward = step_reward
         self.kick_reward = kick_reward
+        self.max_ball_speed = max_ball_speed
         self.max_dist_to_ball = max_dist_to_ball
         self.rng = rng or Random()
 
@@ -147,7 +151,6 @@ class TeamSoccerEnv(Env):
                     y=field_center.y - goal_width / 2,
                 ),
             ),
-            steps=0,
         )
 
         return self._state
@@ -175,15 +178,13 @@ class TeamSoccerEnv(Env):
         rewards = self._get_rewards(prev_state, actions)
 
         self._state.steps += 1
-
-        done = self._is_done()
+        self._state.done = self._is_done()
 
         result = StateChange(
             state=prev_state,
             action=actions,
             reward=rewards,
             next_state=self._state,
-            done=done,
         )
 
         return result
@@ -221,14 +222,16 @@ class TeamSoccerEnv(Env):
 
         kick_agent, kick_strength = self._get_kick(actions)
         if kick_agent is not None:
+            ball_speed = self.max_ball_speed * kick_strength
+
             angle_from_agent_to_ball = atan2(
                 ball.location.y - kick_agent.location.y,
                 ball.location.x - kick_agent.location.x,
             )
 
             ball.velocity = Velocity2D(
-                dx=kick_strength * cos(angle_from_agent_to_ball),
-                dy=kick_strength * sin(angle_from_agent_to_ball),
+                dx=ball_speed * cos(angle_from_agent_to_ball),
+                dy=ball_speed * sin(angle_from_agent_to_ball),
             )
 
         ball.location.x += ball.velocity.dx
@@ -258,6 +261,7 @@ class TeamSoccerEnv(Env):
             kick_strength = action.kick_strength
 
             if kick_strength > 0 and self._agent_is_near_ball(agent):
+                kick_strength = min(kick_strength, 1)
                 kicking_agents.append((agent, kick_strength))
 
         return self.rng.choice(kicking_agents) if kicking_agents else (None, 0)

@@ -9,7 +9,7 @@ from torch import nn
 from rlsandbox.agents.agent import Agent
 from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, SimpleTeamSoccerAgent, BaseTeamSoccerAgent
 from rlsandbox.envs.renderers.team_soccer_renderer import TeamSoccerEnvRenderer
-from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions
+from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions, TeamId
 from rlsandbox.monitor import Monitor
 from rlsandbox.types import Size2D
 
@@ -35,6 +35,18 @@ class SingleAgentMux(AgentMux):
         return [self.agent]
 
 
+class OneAgentPerTeamMux(AgentMux):
+    def __init__(self, left_agent: BaseTeamSoccerAgent, right_agent: BaseTeamSoccerAgent):
+        self.left_agent = left_agent
+        self.right_agent = right_agent
+
+    def __getitem__(self, item: AgentId) -> BaseTeamSoccerAgent:
+        return self.left_agent if item.team == TeamId.LEFT else self.right_agent
+
+    def agents(self) -> list[BaseTeamSoccerAgent]:
+        return [self.left_agent, self.right_agent]
+
+
 class UberAgent(Agent):
     agent_mux: AgentMux
 
@@ -56,15 +68,16 @@ def main_simple():
     field_size = Size2D(40, 20)
     env = TeamSoccerEnv(
         field_size=field_size,
-        left_team_size=1,
-        right_team_size=1,
+        left_team_size=3,
+        right_team_size=3,
         max_steps=300,
     )
 
     env_renderer = TeamSoccerEnvRenderer(env, fps=30, scale=30)
 
     agent = SimpleTeamSoccerAgent()
-    agent_mux = SingleAgentMux(agent)
+    # agent_mux = SingleAgentMux(agent)
+    agent_mux = OneAgentPerTeamMux(agent, agent)
     uber_agent = UberAgent(agent_mux)
 
     with Monitor(env, env_renderer) as monitor:

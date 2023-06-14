@@ -1,10 +1,13 @@
-from dataclasses import dataclass
 import operator
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 Action = Any
 Reward = float
-State = Any
+
+
+class State(Protocol):
+    done: bool
 
 
 @dataclass
@@ -13,7 +16,10 @@ class StateChange:
     action: Action
     reward: Reward
     next_state: State
-    done: bool
+
+    @property
+    def done(self) -> bool:
+        return self.next_state.done
 
 
 @dataclass

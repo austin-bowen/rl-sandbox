@@ -175,7 +175,7 @@ def main_direct_compare(pool):
     agent_mux = OneAgentPerTeamMux(left_agent=agent, right_agent=agent)
     multi_agent = MultiAgent(agent_mux)
 
-    games_per_eval = 1
+    games_per_eval = 32
 
     new_bests_found = 0
 

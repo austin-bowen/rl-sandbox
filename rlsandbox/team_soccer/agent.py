@@ -153,7 +153,7 @@ class SoccerAgentModel(nn.Module):
     obs_dim: int
     out_dim: int
 
-    def __init__(self, obs_dim: int, out_dim: int = 6):
+    def __init__(self, obs_dim: int, out_dim: int = 3):
         super().__init__()
 
         self.obs_dim = obs_dim

@@ -1,14 +1,16 @@
+import os
 import random
 from abc import abstractmethod
+from copy import deepcopy
 from itertools import count
-from multiprocessing import get_context
 from typing import Tuple
 
 import torch
 from torch import nn
+from torch.multiprocessing import get_context
 
 from rlsandbox.agents.agent import Agent
-from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, SimpleTeamSoccerAgent, BaseTeamSoccerAgent
+from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, BaseTeamSoccerAgent
 from rlsandbox.env_runner import EnvRunner
 from rlsandbox.envs.renderers.team_soccer_renderer import TeamSoccerEnvRenderer
 from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions, TeamId
@@ -49,7 +51,7 @@ class OneAgentPerTeamMux(AgentMux):
         return [self.left_agent, self.right_agent]
 
 
-class UberAgent(Agent):
+class MultiAgent(Agent):
     agent_mux: AgentMux
 
     def __init__(self, agent_mux: AgentMux):
@@ -66,77 +68,74 @@ class UberAgent(Agent):
         }
 
 
-def main_simple():
-    field_size = Size2D(40, 20)
-    env = TeamSoccerEnv(
-        field_size=field_size,
-        left_team_size=3,
-        right_team_size=3,
-        max_steps=300,
-    )
-
-    env_renderer = TeamSoccerEnvRenderer(env, fps=30, scale=30)
-
-    agent = SimpleTeamSoccerAgent()
-    # agent_mux = SingleAgentMux(agent)
-    agent_mux = OneAgentPerTeamMux(agent, agent)
-    uber_agent = UberAgent(agent_mux)
-
-    with Monitor(env, env_renderer) as monitor:
-        monitor.set_agent(uber_agent)
-        input('Press Enter to exit')
-
-
 def main(pool):
     field_size = Size2D(40, 20)
     env = TeamSoccerEnv(
         field_size=field_size,
-        left_team_size=1,
-        right_team_size=1,
-        max_steps=100,
+        left_team_size=2,
+        right_team_size=2,
+        max_steps=200,
+        max_steps_no_ball_movement=50,
     )
 
     monitor_env = TeamSoccerEnv(
-        field_size=field_size,
+        field_size=Size2D(40, 20),
         left_team_size=env.left_team_size,
         right_team_size=env.right_team_size,
-        max_steps=300,
+        # max_steps_no_ball_movement=50,
     )
 
-    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=30, scale=30)
+    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=20, scale=20)
 
-    agent = ANNTeamSoccerAgent(obs_dim=21)
-    agent_mux = SingleAgentMux(agent)
-    uber_agent = UberAgent(agent_mux)
+    agent = ANNTeamSoccerAgent(obs_dim=24)
+
+    best_agents = [agent]
+    opponent = deepcopy(agent)
+    opponent_update_delay = 50
+
+    agent_mux = OneAgentPerTeamMux(left_agent=opponent, right_agent=agent)
+    multi_agent = MultiAgent(agent_mux)
 
     games_per_eval = 64
 
     new_bests_found = 0
 
-    with Monitor(monitor_env, env_renderer) as monitor:
-        monitor.set_agent(uber_agent)
+    with Monitor(monitor_env, env_renderer, update_agent_on='step') as monitor:
+        monitor.set_agent(multi_agent)
 
         for gens in count():
             print(f'Generation {gens}')
 
+            opponent_index = max(0, new_bests_found - opponent_update_delay)
+            opponent = deepcopy(best_agents[opponent_index])
+            agent_mux.left_agent = opponent
+            monitor.set_agent(multi_agent)
+
+            # if gens % opponent_update_period == 0:
+            #     opponent = deepcopy(agent)
+            #     agent_mux.left_agent = opponent
+            #     monitor.set_agent(multi_agent)
+
             new_agent = mutate_agent(agent)
 
-            scores = pool.starmap(evaluate_agent, ((env, agent, new_agent) for _ in range(games_per_eval)))
-            agent_reward = sum(score[0] for score in scores) / games_per_eval
-            new_agent_reward = sum(score[1] for score in scores) / games_per_eval
-            agent_reward = tuple(agent_reward)
-            new_agent_reward = tuple(new_agent_reward)
+            scores = pool.starmap(evaluate_agent, ((env, opponent, agent, new_agent) for _ in range(games_per_eval)))
+            scores.reverse()
+            reward_decay = 0.99
+            agent_reward = sum(reward_decay ** i * score[0] for i, score in enumerate(scores)) / games_per_eval
+            new_agent_reward = sum(reward_decay ** i * score[1] for i, score in enumerate(scores)) / games_per_eval
+            # agent_reward = tuple(agent_reward)
+            # new_agent_reward = tuple(new_agent_reward)
 
-            new_agent_wins = sum(
-                tuple(score[1]) >= tuple(score[0]) for score in scores
-            )
-            agent_wins = games_per_eval - new_agent_wins
+            # new_agent_wins = sum(
+            #     tuple(score[1]) >= tuple(score[0]) for score in scores
+            # )
+            # agent_wins = games_per_eval - new_agent_wins
 
             print(
                 f'Agent reward: {agent_reward};\t'
                 f'new agent reward: {new_agent_reward};\t'
-                f'agent wins: {agent_wins};\t'
-                f'new agent wins: {new_agent_wins};\t'
+                # f'agent wins: {agent_wins};\t'
+                # f'new agent wins: {new_agent_wins};\t'
                 f'new bests found: {new_bests_found};\t'
             )
 
@@ -144,17 +143,90 @@ def main(pool):
                 # if new_agent_wins > agent_wins:
                 # if new_agent_reward >= agent_reward and new_agent_wins >= agent_wins:
                 new_bests_found += 1
+                best_agents.append(new_agent)
 
                 agent = new_agent
 
-                agent_mux.agent = agent
-                monitor.set_agent(uber_agent)
+                agent_mux.right_agent = agent
+                monitor.set_agent(multi_agent)
+
+
+def main_direct_compare(pool):
+    field_size = Size2D(40, 20)
+    env = TeamSoccerEnv(
+        field_size=field_size,
+        left_team_size=2,
+        right_team_size=2,
+        max_steps=200,
+        max_steps_no_ball_movement=50,
+    )
+
+    monitor_env = TeamSoccerEnv(
+        field_size=Size2D(40, 20),
+        left_team_size=env.left_team_size,
+        right_team_size=env.right_team_size,
+        # max_steps_no_ball_movement=50,
+    )
+
+    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=20, scale=20)
+
+    agent = ANNTeamSoccerAgent(obs_dim=24)
+
+    agent_mux = OneAgentPerTeamMux(left_agent=agent, right_agent=agent)
+    multi_agent = MultiAgent(agent_mux)
+
+    games_per_eval = 1
+
+    new_bests_found = 0
+
+    with Monitor(monitor_env, env_renderer, update_agent_on='step') as monitor:
+        monitor.set_agent(multi_agent)
+
+        for gens in count():
+            print(f'Generation {gens}')
+
+            new_agent = mutate_agent(agent)
+
+            agent_mux.right_agent = new_agent
+            monitor.set_agent(multi_agent)
+
+            scores = pool.starmap(evaluate_agent2, ((env, agent, new_agent) for _ in range(games_per_eval)))
+            scores.reverse()
+            reward_decay = 1.
+            agent_reward = sum(reward_decay ** i * score[0] for i, score in enumerate(scores)) / games_per_eval
+            new_agent_reward = sum(reward_decay ** i * score[1] for i, score in enumerate(scores)) / games_per_eval
+            # agent_reward = tuple(agent_reward)
+            # new_agent_reward = tuple(new_agent_reward)
+
+            new_agent_wins = sum(
+                # tuple(score[1]) > tuple(score[0]) for score in scores
+                new_agent_score > best_agent_score
+                for best_agent_score, new_agent_score in scores
+            )
+            agent_wins = games_per_eval - new_agent_wins
+
+            print(
+                f'Agent reward: {agent_reward};\t'
+                f'new agent reward: {new_agent_reward};\t'
+                f'new agent wins: {100 * new_agent_wins / games_per_eval:.2f}%;\t'
+                f'new bests found: {new_bests_found};\t'
+            )
+
+            # if new_agent_reward >= agent_reward:
+            if new_agent_wins > agent_wins:
+                # if new_agent_reward >= agent_reward and new_agent_wins >= agent_wins:
+                new_bests_found += 1
+
+                agent = new_agent
+
+                agent_mux.left_agent = agent
+                monitor.set_agent(multi_agent)
 
 
 def mutate_agent(agent: ANNTeamSoccerAgent):
     new_agent = ANNTeamSoccerAgent(obs_dim=agent.model.obs_dim)
 
-    weight_change = 0.03
+    weight_change = 0.08
     max_weight = 10
     weight_decay = max_weight / (max_weight + weight_change)
     dropout = 0.
@@ -175,42 +247,40 @@ def mutate_agent(agent: ANNTeamSoccerAgent):
     return new_agent
 
 
-def evaluate_agent(env, best_agent, new_agent) -> Tuple[Reward, Reward]:
-    env_seed = random.randint(0, 2 ** 32 - 1)
+def evaluate_agent(env, opponent, best_agent, new_agent) -> Tuple[Reward, Reward]:
+    env_seed = hash((
+        os.getpid(),
+        random.randint(0, 2 ** 32 - 1),
+    ))
+
+    # Best agent vs opponent
+    env.rng.seed(env_seed)
+    agent_mux = OneAgentPerTeamMux(left_agent=opponent, right_agent=best_agent)
+    multi_agent = MultiAgent(agent_mux)
+    runner = EnvRunner(env, multi_agent)
+
+    state_changes = runner.run()
+    all_rewards = [state_change.reward for state_change in state_changes]
 
     best_agent_rewards = []
-    new_agent_rewards = []
-
-    # Play a game with the best agent on the left and the new agent on the right
-    env.rng.seed(env_seed)
-    agent_mux = OneAgentPerTeamMux(left_agent=best_agent, right_agent=new_agent)
-    uber_agent = UberAgent(agent_mux)
-    runner = EnvRunner(env, uber_agent)
-
-    state_changes = runner.run()
-    all_rewards = [state_change.reward for state_change in state_changes]
-
-    for agent_rewards in all_rewards:
-        for agent_id, reward in agent_rewards.items():
-            if agent_id.team == TeamId.LEFT:
-                best_agent_rewards.append(reward)
-            else:
-                new_agent_rewards.append(reward)
-
-    # Play a game with the new agent on the left and the best agent on the right
-    env.rng.seed(env_seed)
-    agent_mux = OneAgentPerTeamMux(left_agent=new_agent, right_agent=best_agent)
-    uber_agent = UberAgent(agent_mux)
-    runner = EnvRunner(env, uber_agent)
-
-    state_changes = runner.run()
-    all_rewards = [state_change.reward for state_change in state_changes]
-
     for agent_rewards in all_rewards:
         for agent_id, reward in agent_rewards.items():
             if agent_id.team == TeamId.RIGHT:
                 best_agent_rewards.append(reward)
-            else:
+
+    # New agent vs opponent
+    env.rng.seed(env_seed)
+    agent_mux = OneAgentPerTeamMux(left_agent=opponent, right_agent=new_agent)
+    multi_agent = MultiAgent(agent_mux)
+    runner = EnvRunner(env, multi_agent)
+
+    state_changes = runner.run()
+    all_rewards = [state_change.reward for state_change in state_changes]
+
+    new_agent_rewards = []
+    for agent_rewards in all_rewards:
+        for agent_id, reward in agent_rewards.items():
+            if agent_id.team == TeamId.RIGHT:
                 new_agent_rewards.append(reward)
 
     total_best_agent_rewards = sum(best_agent_rewards)
@@ -219,7 +289,48 @@ def evaluate_agent(env, best_agent, new_agent) -> Tuple[Reward, Reward]:
     return total_best_agent_rewards, total_new_agent_rewards
 
 
+def evaluate_agent2(
+        env: TeamSoccerEnv,
+        best_agent: BaseTeamSoccerAgent,
+        new_agent: BaseTeamSoccerAgent,
+) -> Tuple[Reward, Reward]:
+    env_seed = hash((
+        os.getpid(),
+        random.randint(0, 2 ** 32 - 1),
+    ))
+
+    best_agent_reward_total = 0
+    new_agent_reward_total = 0
+
+    for best_agent_team, new_agent_team in (
+            (TeamId.LEFT, TeamId.RIGHT),
+            (TeamId.RIGHT, TeamId.LEFT),
+    ):
+        env.rng.seed(env_seed)
+
+        multi_agent = MultiAgent(
+            OneAgentPerTeamMux(
+                left_agent=best_agent if best_agent_team == TeamId.LEFT else new_agent,
+                right_agent=new_agent if new_agent_team == TeamId.RIGHT else best_agent,
+            ),
+        )
+
+        env_runner = EnvRunner(env, multi_agent)
+
+        state_changes = env_runner.run()
+
+        all_rewards = [it.reward for it in state_changes]
+
+        for agent_rewards in all_rewards:
+            for agent_id, reward in agent_rewards.items():
+                if agent_id.team == best_agent_team:
+                    best_agent_reward_total += reward
+                else:
+                    new_agent_reward_total += reward
+
+    return best_agent_reward_total, new_agent_reward_total
+
+
 if __name__ == '__main__':
-    # main_simple()
-    with get_context('fork').Pool() as pool:
-        main(pool)
+    with get_context('forkserver').Pool() as pool:
+        main_direct_compare(pool)

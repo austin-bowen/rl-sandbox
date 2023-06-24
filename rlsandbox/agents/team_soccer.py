@@ -27,7 +27,7 @@ class Observation(NamedTuple):
     def to_tensor(self) -> torch.Tensor:
         array = np.concatenate([
             self.ball_position,
-            [self.ball_speed, self.ball_speed_angle],
+            # [self.ball_speed, self.ball_speed_angle],
             self.team_left_goal_post_position,
             self.team_right_goal_post_position,
             self.opponent_left_goal_post_position,
@@ -54,6 +54,7 @@ class BaseTeamSoccerAgent(Agent):
         ball = state.ball
         ball_position = self._get_angle_and_dist(agent, ball.location)
         ball_speed = sqrt(ball.velocity.dx ** 2 + ball.velocity.dy ** 2)
+        ball_speed = 2 ** (-ball_speed)
         ball_speed_angle = atan2(ball.velocity.dy, ball.velocity.dx)
         ball_speed_angle -= agent.heading
 
@@ -65,16 +66,14 @@ class BaseTeamSoccerAgent(Agent):
             opponent_goal = state.left_goal
 
         other_agents = [it for it in state.agents if it.id != agent_id]
+        teammates = [it for it in other_agents if it.id.team == agent.id.team]
+        opponents = [it for it in other_agents if it.id.team != agent.id.team]
+        other_agents = [*teammates, *opponents]
         other_agent_positions = []
         for other_agent in other_agents:
-            is_opponent = 1. if other_agent.id.team != agent.id.team else 0.
-            position = self._get_angle_and_dist(agent, other_agent.location)
-
             other_agent_positions.append(
-                np.concatenate(([is_opponent], position))
+                self._get_angle_and_dist(agent, other_agent.location)
             )
-
-        self.rng.shuffle(other_agent_positions)
 
         return Observation(
             ball_position=ball_position,
@@ -105,7 +104,7 @@ class BaseTeamSoccerAgent(Agent):
     @staticmethod
     def _dist_to_closeness(dist: float) -> float:
         assert dist >= 0
-        return 1 / (1 + 0.5 * dist)
+        return 2 ** (-dist)
 
 
 class SimpleTeamSoccerAgent(BaseTeamSoccerAgent):
@@ -152,23 +151,26 @@ class ANNTeamSoccerAgent(BaseTeamSoccerAgent):
 
 class SoccerAgentModel(nn.Module):
     obs_dim: int
+    out_dim: int
 
-    def __init__(self, obs_dim: int):
+    def __init__(self, obs_dim: int, out_dim: int = 6):
         super().__init__()
 
         self.obs_dim = obs_dim
+        self.out_dim = out_dim
 
         self.layers = nn.Sequential(
-            nn.Linear(obs_dim, 3),
-            # nn.Linear(11, 7),
+            nn.Linear(obs_dim, 7),
+            # nn.ReLU(),
+            # nn.LeakyReLU(),
+            nn.Tanh(),
+            # nn.Sigmoid(),
+            nn.Linear(7, 7),
             # nn.ReLU(),
             # nn.LeakyReLU(),
             # nn.Sigmoid(),
-            # nn.Linear(16, 16),
-            # nn.ReLU(),
-            # nn.LeakyReLU(),
-            # nn.Sigmoid(),
-            # nn.Linear(11, 3),
+            nn.Tanh(),
+            nn.Linear(7, out_dim),
         )
 
         self.apply(self._init_weights)

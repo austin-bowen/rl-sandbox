@@ -1,8 +1,8 @@
 from math import cos, sin
 
 from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, BLACK, WHITE, BLUE
-from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, SoccerAgent
-from rlsandbox.types import Location2D, Size2D
+from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, SoccerAgent, SoccerAction
+from rlsandbox.types import Location2D, Size2D, StateChange
 
 SOCCER_FIELD_GREEN = (100, 200, 50)
 
@@ -19,11 +19,13 @@ class SoccerEnvRenderer(Pygame2DEnvRenderer):
         super().__init__(canvas_size=canvas_size, scale=scale, **kwargs)
         self.env = env
 
-    def draw_env(self, env: SoccerEnv) -> None:
-        state = env.get_state()
+    def draw_state(self, state: SoccerState) -> None:
         self._draw_field(state)
         self._draw_agent(state.agent)
         self._draw_ball(state.ball)
+
+    def draw_state_change(self, state_change: StateChange[SoccerState, SoccerAction]) -> None:
+        self.draw_state(state_change.next_state)
 
     def _draw_field(self, state: SoccerState) -> None:
         self.canvas.fill(SOCCER_FIELD_GREEN)

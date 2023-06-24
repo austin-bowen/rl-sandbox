@@ -1,9 +1,13 @@
+import time
 from math import cos, sin
+from typing import Iterable
+
+import pygame
 
 from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, WHITE, BLUE, RED
-from rlsandbox.envs.soccer import Ball
-from rlsandbox.envs.team_soccer import TeamSoccerAgent, TeamSoccerEnv, TeamSoccerState, TeamId
-from rlsandbox.types import Location2D, Size2D
+from rlsandbox.envs.soccer import Ball, SoccerAction
+from rlsandbox.envs.team_soccer import TeamSoccerAgent, TeamSoccerEnv, TeamSoccerState, TeamId, SoccerActions, AgentId
+from rlsandbox.types import Location2D, Size2D, StateChange, Reward
 
 SOCCER_FIELD_GREEN = (100, 200, 50)
 LEFT_TEAM_COLOR = RED
@@ -34,11 +38,17 @@ class TeamSoccerEnvRenderer(Pygame2DEnvRenderer):
         self.left_team_color = left_team_color
         self.right_team_color = right_team_color
 
-    def draw_env(self, env: TeamSoccerEnv) -> None:
-        state = env.get_state()
+    def draw_state(self, state: TeamSoccerState) -> None:
         self._draw_field(state)
         self._draw_agents(state.agents)
         self._draw_ball(state.ball)
+
+    def draw_state_change(self, state_change: StateChange[TeamSoccerState, SoccerActions]) -> None:
+        self.draw_state(state_change.next_state)
+        y = self._draw_actions_and_rewards(state_change)
+
+        if state_change.state.done:
+            time.sleep(3)
 
     def _draw_field(self, state: TeamSoccerState) -> None:
         self.canvas.fill(SOCCER_FIELD_GREEN)
@@ -73,6 +83,107 @@ class TeamSoccerEnvRenderer(Pygame2DEnvRenderer):
         )
         self._draw_line(WHITE, point0, point1, width=0.1)
 
+        self._draw_surface(
+            self._build_text_surface(
+                f'{agent.id.number}',
+            ),
+            agent.location + Location2D(x=agent_radius, y=-agent_radius),
+        )
+
+    def _draw_actions_and_rewards(self, state_change: StateChange) -> None:
+        actions = state_change.action
+        rewards = state_change.reward
+
+        left_actions = [it for it in actions.items() if it[0].team == TeamId.LEFT]
+        left_rewards = [it for it in rewards.items() if it[0].team == TeamId.LEFT]
+        right_actions = [it for it in actions.items() if it[0].team == TeamId.RIGHT]
+        right_rewards = [it for it in rewards.items() if it[0].team == TeamId.RIGHT]
+
+        agent_number = lambda it: it[0].number
+        left_actions.sort(key=agent_number)
+        left_rewards.sort(key=agent_number)
+        right_actions.sort(key=agent_number)
+        right_rewards.sort(key=agent_number)
+
+        last_kicker = state_change.next_state.last_kicker
+        self._draw_messages_from_top_left(
+            self._get_team_messages(
+                'Left Team',
+                left_actions,
+                left_rewards,
+                has_ball=last_kicker and last_kicker.team == TeamId.LEFT,
+            ),
+        )
+
+        self._draw_messages_from_top_right(
+            self._get_team_messages(
+                'Right Team',
+                right_actions,
+                right_rewards,
+                has_ball=last_kicker and last_kicker.team == TeamId.RIGHT,
+            ),
+        )
+
+    def _get_team_messages(
+            self,
+            team: str,
+            actions: list[tuple[AgentId, SoccerAction]],
+            rewards: list[tuple[AgentId, Reward]],
+            has_ball: bool,
+    ) -> list:
+        messages = [
+            (team, dict(bold=True)),
+            ('Actions:', dict(italic=True)),
+        ]
+
+        for agent_id, action in actions:
+            messages.append((
+                f'  {agent_id.number}: {action}',
+                dict(),
+            ))
+
+        messages.append(('Rewards:', dict(italic=True)))
+        for agent_id, reward in rewards:
+            messages.append((
+                f'  {agent_id.number}: {reward:.3f}',
+                dict(),
+            ))
+
+        if has_ball:
+            messages.append((
+                f'Has ball!',
+                dict(bold=True),
+            ))
+
+        return messages
+
+    def _draw_messages_from_top_left(self, messages: Iterable[tuple[str, dict[str, str]]]) -> float:
+        text_surfaces = self._messages_to_text_surfaces(messages)
+
+        location = Location2D(x=0, y=self.env.field_size.height)
+        for surface in text_surfaces:
+            location.y -= surface.get_height() / self.scale
+            self._draw_surface(surface, location)
+
+        return location.y
+
+    def _draw_messages_from_top_right(self, messages: Iterable[tuple[str, dict[str, str]]]) -> None:
+        text_surfaces = self._messages_to_text_surfaces(messages)
+
+        max_width = max(surface.get_width() for surface in text_surfaces)
+        x = self.env.field_size.width - max_width / self.scale
+
+        location = Location2D(x, y=self.env.field_size.height)
+        for surface in text_surfaces:
+            location.y -= surface.get_height() / self.scale
+            self._draw_surface(surface, location)
+
+    def _messages_to_text_surfaces(self, messages: Iterable[tuple[str, dict[str, str]]]) -> list[pygame.Surface]:
+        return [
+            self._build_text_surface(message, **kwargs)
+            for message, kwargs in messages
+        ]
+
 
 def main():
     env = TeamSoccerEnv(
@@ -83,7 +194,7 @@ def main():
     )
 
     renderer = TeamSoccerEnvRenderer(env=env, scale=20)
-    renderer.render(env)
+    renderer.render_state(env.get_state())
 
     input('Press enter to exit')
 

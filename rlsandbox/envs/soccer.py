@@ -50,6 +50,11 @@ class SoccerAction:
     kick_strength: float
     """Range: [0, 1]"""
 
+    def __str__(self) -> str:
+        return f'(move_dist={self.move_dist:.3f}, ' \
+               f'turn_angle={self.turn_angle:.3f}, ' \
+               f'kick_strength={self.kick_strength:.3f})'
+
 
 class SoccerEnv(Env):
     field_size: Size2D

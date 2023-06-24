@@ -25,7 +25,9 @@ class TeamSoccerState:
     ball: 'Ball'
     left_goal: 'Goal'
     right_goal: 'Goal'
+    last_kicker: Optional['AgentId'] = None
     steps: int = 0
+    steps_no_ball_movement: int = 0
     done: bool = False
 
     @property
@@ -71,7 +73,8 @@ class TeamSoccerEnv(Env):
     field_size: Size2D
     left_team_size: int
     right_team_size: int
-    max_steps: int
+    max_steps: Optional[int]
+    max_steps_no_ball_movement: Optional[int]
     goal_reward: float
     step_reward: float
     kick_reward: float
@@ -86,10 +89,11 @@ class TeamSoccerEnv(Env):
             field_size: Size2D,
             left_team_size: int,
             right_team_size: int,
-            max_steps: int,
+            max_steps: int = None,
+            max_steps_no_ball_movement: int = None,
             goal_reward: float = 10.,
             step_reward: float = -0.01,
-            kick_reward: float = 0.1,
+            kick_reward: float = 0.,
             max_ball_speed: float = 2.,
             max_dist_to_ball: float = 1.,
             rng: Random = None
@@ -101,6 +105,7 @@ class TeamSoccerEnv(Env):
         self.right_team_size = right_team_size
         self.field_size = field_size
         self.max_steps = max_steps
+        self.max_steps_no_ball_movement = max_steps_no_ball_movement
         self.goal_reward = goal_reward
         self.step_reward = step_reward
         self.kick_reward = kick_reward
@@ -234,6 +239,8 @@ class TeamSoccerEnv(Env):
                 dy=ball_speed * sin(angle_from_agent_to_ball),
             )
 
+            self._state.last_kicker = kick_agent.id
+
         ball.location.x += ball.velocity.dx
         ball.location.y += ball.velocity.dy
 
@@ -252,6 +259,11 @@ class TeamSoccerEnv(Env):
 
         ball.velocity.dx *= ball.speed_decay
         ball.velocity.dy *= ball.speed_decay
+
+        if ball.velocity.magnitude < 0.001:
+            self._state.steps_no_ball_movement += 1
+        else:
+            self._state.steps_no_ball_movement = 0
 
     def _get_kick(self, actions: SoccerActions) -> Tuple[Optional[TeamSoccerAgent], float]:
         kicking_agents: List[Tuple[TeamSoccerAgent, float]] = []
@@ -284,7 +296,7 @@ class TeamSoccerEnv(Env):
 
         reward[0] += self.step_reward
 
-        if self._ball_is_in_opponent_goal(agent):
+        if self._ball_is_in_opponent_goal(agent) and self._state.last_kicker == agent_id:
             reward[0] += self.goal_reward
         elif self._ball_is_in_team_goal(agent):
             reward[0] -= self.goal_reward
@@ -309,19 +321,51 @@ class TeamSoccerEnv(Env):
         # elif action.kick_strength > 0:
         #     reward -= action.kick_strength * 0.1
 
-        goal_center = Location2D(x=self.field_size.width, y=self.field_size.height / 2)
-        prev_dist_ball_to_goal = prev_state.ball.location.euclidean_dist(goal_center)
-        curr_dist_ball_to_goal = self._state.ball.location.euclidean_dist(goal_center)
-        diff_dist_ball_to_goal = prev_dist_ball_to_goal - curr_dist_ball_to_goal
-        reward[1] += diff_dist_ball_to_goal * (1 if diff_dist_ball_to_goal > 0 else .5)
+        opponent_goal_center = Location2D(
+            x=0 if agent.id.team == TeamId.RIGHT else self.field_size.width,
+            y=self.field_size.height / 2,
+        )
+        prev_dist_ball_to_goal = prev_state.ball.location.euclidean_dist(opponent_goal_center)
+        curr_dist_ball_to_goal = self._state.ball.location.euclidean_dist(opponent_goal_center)
+        dist_ball_closer_to_goal = prev_dist_ball_to_goal - curr_dist_ball_to_goal
+        reward[1] += (
+            dist_ball_closer_to_goal
+            # if dist_ball_closer_to_goal >= 0
+            # else 2 * dist_ball_closer_to_goal
+        )
 
-        reward[1] -= abs(action.turn_angle) * 0.05
+        reward[1] -= abs(action.turn_angle) * 0.1
 
-        return reward
+        took_ball_reward = 1
+        if self._took_ball_from_opponent(agent, prev_state):
+            reward[1] += took_ball_reward
+        if self._lost_ball_to_opponent(agent, prev_state):
+            reward[1] -= took_ball_reward
+        # if self._state.last_kicker and self._state.last_kicker.team != agent.id.team:
+        #     reward[1] -= 0.1
+
+        # return reward
+        return reward[0] + reward[1]
+
+    def _took_ball_from_opponent(self, agent: TeamSoccerAgent, prev_state: TeamSoccerState) -> bool:
+        return (
+                prev_state.last_kicker is not None
+                and self._state.last_kicker == agent.id
+                and prev_state.last_kicker.team != agent.id.team
+        )
+
+    def _lost_ball_to_opponent(self, agent: TeamSoccerAgent, prev_state: TeamSoccerState) -> bool:
+        return (
+                prev_state.last_kicker is not None
+                and prev_state.last_kicker == agent.id
+                and self._state.last_kicker.team != agent.id.team
+        )
 
     def _is_done(self) -> bool:
         return (
-                self._state.steps >= self.max_steps
+                (self.max_steps and self._state.steps >= self.max_steps)
+                or (self.max_steps_no_ball_movement
+                    and self._state.steps_no_ball_movement >= self.max_steps_no_ball_movement)
                 or self._ball_is_out_of_bounds()
                 or self._ball_is_in_goal(TeamId.LEFT)
                 or self._ball_is_in_goal(TeamId.RIGHT)

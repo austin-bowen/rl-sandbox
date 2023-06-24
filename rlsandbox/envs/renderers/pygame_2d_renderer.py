@@ -3,9 +3,8 @@ from typing import Tuple
 
 import pygame
 
-from rlsandbox.envs.env import Env
 from rlsandbox.envs.renderers.renderer import EnvRenderer
-from rlsandbox.types import Size2D, Location2D
+from rlsandbox.types import Size2D, Location2D, State, StateChange
 
 BLACK = (0, 0, 0)
 BLUE = (0, 0, 255)
@@ -45,22 +44,32 @@ class Pygame2DEnvRenderer(EnvRenderer):
 
         return self._canvas
 
-    def render(self, env: Env) -> None:
+    def render_state(self, state: State) -> None:
         self._clear()
-        self.draw_env(env)
-        pygame.display.flip()
-
-        for _ in pygame.event.get():
-            pass
-
-        self._clock.tick(self.fps)
+        self.draw_state(state)
+        self._update_display()
 
     @abstractmethod
-    def draw_env(self, env: Env) -> None:
+    def draw_state(self, state: State) -> None:
+        ...
+
+    def render_state_change(self, state_change: StateChange) -> None:
+        self._clear()
+        self.draw_state_change(state_change)
+        self._update_display()
+
+    @abstractmethod
+    def draw_state_change(self, state_change: StateChange) -> None:
         ...
 
     def _clear(self) -> None:
         self.canvas.fill(self.clear_color)
+
+    def _update_display(self):
+        pygame.display.flip()
+        for _ in pygame.event.get():
+            pass
+        self._clock.tick(self.fps)
 
     def _draw_circle(self, color: Tuple, location: Location2D, radius: float) -> None:
         pygame.draw.circle(self.canvas, color, self._location_to_pygame(location), round(radius * self.scale))
@@ -73,6 +82,28 @@ class Pygame2DEnvRenderer(EnvRenderer):
             self._location_to_pygame(point1),
             round(width * self.scale),
         )
+
+    def _draw_surface(self, surface: pygame.Surface, location: Location2D) -> None:
+        location = Location2D(
+            x=location.x,
+            y=location.y + surface.get_height() / self.scale,
+        )
+
+        self.canvas.blit(surface, self._location_to_pygame(location))
+
+    def _build_text_surface(
+            self,
+            text: str,
+            font: str = None,
+            bold: bool = False,
+            italic: bool = False,
+            size: int = 20,
+            antialias: bool = True,
+            color: Tuple = BLACK,
+            background_color: Tuple = None,
+    ) -> pygame.Surface:
+        font = pygame.font.SysFont(font, size, bold, italic)
+        return font.render(text, antialias, color, background_color)
 
     def _location_to_pygame(self, location: Location2D) -> Tuple:
         return (

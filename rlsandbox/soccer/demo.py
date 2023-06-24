@@ -6,10 +6,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from rlsandbox.agents.soccer import ANNSoccerAgent
-from rlsandbox.envs.renderers.soccer_renderer import SoccerEnvRenderer
-from rlsandbox.envs.soccer import SoccerEnv
 from rlsandbox.monitor import Monitor
+from rlsandbox.soccer.agent import ANNSoccerAgent
+from rlsandbox.soccer.env import SoccerEnv
+from rlsandbox.soccer.renderer import SoccerEnvRenderer
 from rlsandbox.types import Size2D
 
 

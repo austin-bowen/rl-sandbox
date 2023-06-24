@@ -7,9 +7,9 @@ from typing import List, Optional, Tuple, Dict
 
 import numpy as np
 
-from rlsandbox.envs.env import Env
-from rlsandbox.envs.soccer import Ball, SoccerAction
-from rlsandbox.types import StateChange, Size2D, Location2D, Velocity2D
+from rlsandbox.base import Env, StateChange
+from rlsandbox.soccer.env import Ball, SoccerAction
+from rlsandbox.types import Size2D, Location2D, Velocity2D
 
 
 class TeamId(Enum):

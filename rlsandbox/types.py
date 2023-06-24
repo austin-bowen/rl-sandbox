@@ -1,29 +1,5 @@
 import operator
 from dataclasses import dataclass
-from typing import Any, Protocol, Generic, TypeVar
-
-Action = Any
-Reward = float
-
-
-class State(Protocol):
-    done: bool
-
-
-S = TypeVar('S', bound=State)
-A = TypeVar('A', bound=Action)
-
-
-@dataclass
-class StateChange(Generic[S, A]):
-    state: S
-    action: A
-    reward: Reward
-    next_state: S
-
-    @property
-    def done(self) -> bool:
-        return self.next_state.done
 
 
 @dataclass

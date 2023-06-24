@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-from rlsandbox.agents.agent import Agent
-from rlsandbox.envs.env import Env
-from rlsandbox.envs.renderers.renderer import EnvRenderer
-from rlsandbox.types import State, StateChange
+from rlsandbox.base import Agent, Env, State, StateChange
+from rlsandbox.base.renderer import EnvRenderer
 
 
 class Event(Protocol):

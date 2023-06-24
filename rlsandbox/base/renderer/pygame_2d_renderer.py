@@ -3,8 +3,9 @@ from typing import Tuple
 
 import pygame
 
-from rlsandbox.envs.renderers.renderer import EnvRenderer
-from rlsandbox.types import Size2D, Location2D, State, StateChange
+from rlsandbox.base import State, StateChange
+from rlsandbox.base.renderer import EnvRenderer
+from rlsandbox.types import Size2D, Location2D
 
 BLACK = (0, 0, 0)
 BLUE = (0, 0, 255)

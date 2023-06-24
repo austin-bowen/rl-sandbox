@@ -1,8 +1,9 @@
 from math import cos, sin
 
-from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, BLACK, WHITE, BLUE
-from rlsandbox.envs.soccer import SoccerEnv, SoccerState, Ball, SoccerAgent, SoccerAction
-from rlsandbox.types import Location2D, Size2D, StateChange
+from rlsandbox.base import StateChange
+from rlsandbox.base.renderer.pygame_2d_renderer import Pygame2DEnvRenderer, BLACK, WHITE, BLUE
+from rlsandbox.soccer.env import SoccerEnv, SoccerState, Ball, SoccerAgent, SoccerAction
+from rlsandbox.types import Location2D, Size2D
 
 SOCCER_FIELD_GREEN = (100, 200, 50)
 

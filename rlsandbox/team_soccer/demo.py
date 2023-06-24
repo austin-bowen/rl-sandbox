@@ -9,13 +9,13 @@ import torch
 from torch import nn
 from torch.multiprocessing import get_context
 
-from rlsandbox.agents.agent import Agent
-from rlsandbox.agents.team_soccer import ANNTeamSoccerAgent, BaseTeamSoccerAgent
+from rlsandbox.base import Agent, Reward
 from rlsandbox.env_runner import EnvRunner
-from rlsandbox.envs.renderers.team_soccer_renderer import TeamSoccerEnvRenderer
-from rlsandbox.envs.team_soccer import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions, TeamId
 from rlsandbox.monitor import Monitor
-from rlsandbox.types import Size2D, Reward
+from rlsandbox.team_soccer.agent import ANNTeamSoccerAgent, BaseTeamSoccerAgent
+from rlsandbox.team_soccer.env import TeamSoccerEnv, AgentId, TeamSoccerState, SoccerActions, TeamId
+from rlsandbox.team_soccer.renderer import TeamSoccerEnvRenderer
+from rlsandbox.types import Size2D
 
 
 class AgentMux:

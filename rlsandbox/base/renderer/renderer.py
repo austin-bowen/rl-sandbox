@@ -1,6 +1,6 @@
 from abc import abstractmethod
 
-from rlsandbox.types import State, StateChange
+from rlsandbox.base import State, StateChange
 
 
 class EnvRenderer:

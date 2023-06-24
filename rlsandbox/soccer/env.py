@@ -5,8 +5,8 @@ from random import Random
 
 import numpy as np
 
-from rlsandbox.envs.env import Env
-from rlsandbox.types import StateChange, Size2D, Location2D, Velocity2D
+from rlsandbox.base import Env, StateChange
+from rlsandbox.types import Size2D, Location2D, Velocity2D
 
 
 @dataclass

@@ -4,10 +4,11 @@ from typing import Iterable
 
 import pygame
 
-from rlsandbox.envs.renderers.pygame_2d_renderer import Pygame2DEnvRenderer, WHITE, BLUE, RED
-from rlsandbox.envs.soccer import Ball, SoccerAction
-from rlsandbox.envs.team_soccer import TeamSoccerAgent, TeamSoccerEnv, TeamSoccerState, TeamId, SoccerActions, AgentId
-from rlsandbox.types import Location2D, Size2D, StateChange, Reward
+from rlsandbox.base import Reward, StateChange
+from rlsandbox.base.renderer.pygame_2d_renderer import Pygame2DEnvRenderer, WHITE, BLUE, RED
+from rlsandbox.soccer.env import Ball, SoccerAction
+from rlsandbox.team_soccer.env import TeamSoccerAgent, TeamSoccerEnv, TeamSoccerState, TeamId, SoccerActions, AgentId
+from rlsandbox.types import Location2D, Size2D
 
 SOCCER_FIELD_GREEN = (100, 200, 50)
 LEFT_TEAM_COLOR = RED

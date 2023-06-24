@@ -4,10 +4,9 @@ from multiprocessing import Event, Queue
 from threading import Thread
 from typing import Optional, Literal
 
-from rlsandbox.agents.agent import Agent
+from rlsandbox.base import Agent, Env
+from rlsandbox.base.renderer import EnvRenderer
 from rlsandbox.env_runner import EnvRunner
-from rlsandbox.envs.env import Env
-from rlsandbox.envs.renderers.renderer import EnvRenderer
 
 
 class Monitor(Thread):

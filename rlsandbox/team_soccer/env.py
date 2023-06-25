@@ -6,6 +6,7 @@ from random import Random
 from typing import List, Optional, Tuple, Dict
 
 import numpy as np
+from shapely import LineString
 
 from rlsandbox.base import Env, StateChange
 from rlsandbox.soccer.env import Ball, SoccerAction
@@ -94,7 +95,7 @@ class TeamSoccerEnv(Env):
             goal_reward: float = 10.,
             step_reward: float = -0.01,
             kick_reward: float = 0.,
-            max_ball_speed: float = 2.,
+            max_ball_speed: float = 3.,
             max_dist_to_ball: float = 1.,
             rng: Random = None
     ):
@@ -183,7 +184,7 @@ class TeamSoccerEnv(Env):
         rewards = self._get_rewards(prev_state, actions)
 
         self._state.steps += 1
-        self._state.done = self._is_done()
+        self._state.done = self._is_done(prev_state)
 
         result = StateChange(
             state=prev_state,
@@ -241,21 +242,29 @@ class TeamSoccerEnv(Env):
 
             self._state.last_kicker = kick_agent.id
 
+        prev_ball_location = deepcopy(ball.location)
+
         ball.location.x += ball.velocity.dx
         ball.location.y += ball.velocity.dy
 
-        if ball.location.x < 0:
-            ball.location.x *= -1
-            ball.velocity.dx *= -1
-        elif ball.location.x > self.field_size.width:
-            ball.location.x = 2 * self.field_size.width - ball.location.x
-            ball.velocity.dx *= -1
-        if ball.location.y < 0:
-            ball.location.y *= -1
-            ball.velocity.dy *= -1
-        elif ball.location.y > self.field_size.height:
-            ball.location.y = 2 * self.field_size.height - ball.location.y
-            ball.velocity.dy *= -1
+        ball_is_in_goal = (
+                self._ball_is_in_goal(ball.location, prev_ball_location, self._state.left_goal)
+                or self._ball_is_in_goal(ball.location, prev_ball_location, self._state.right_goal)
+        )
+
+        if not ball_is_in_goal:
+            if ball.location.x < 0:
+                ball.location.x *= -1
+                ball.velocity.dx *= -1
+            elif ball.location.x > self.field_size.width:
+                ball.location.x = 2 * self.field_size.width - ball.location.x
+                ball.velocity.dx *= -1
+            if ball.location.y < 0:
+                ball.location.y *= -1
+                ball.velocity.dy *= -1
+            elif ball.location.y > self.field_size.height:
+                ball.location.y = 2 * self.field_size.height - ball.location.y
+                ball.velocity.dy *= -1
 
         ball.velocity.dx *= ball.speed_decay
         ball.velocity.dy *= ball.speed_decay
@@ -296,9 +305,12 @@ class TeamSoccerEnv(Env):
 
         reward[0] += self.step_reward
 
-        if self._ball_is_in_opponent_goal(agent) and self._state.last_kicker == agent_id:
+        ball_location = self._state.ball.location
+        prev_ball_location = prev_state.ball.location
+        if self._ball_is_in_opponent_goal(ball_location, prev_ball_location, agent) \
+                and self._state.last_kicker == agent_id:
             reward[0] += self.goal_reward
-        elif self._ball_is_in_team_goal(agent):
+        elif self._ball_is_in_team_goal(ball_location, prev_ball_location, agent):
             reward[0] -= self.goal_reward
 
         if self._state.ball.velocity.magnitude < 0.001:
@@ -361,14 +373,17 @@ class TeamSoccerEnv(Env):
                 and self._state.last_kicker.team != agent.id.team
         )
 
-    def _is_done(self) -> bool:
+    def _is_done(self, prev_state: TeamSoccerState) -> bool:
+        ball_location = self._state.ball.location
+        prev_ball_location = prev_state.ball.location
+
         return (
                 (self.max_steps and self._state.steps >= self.max_steps)
                 or (self.max_steps_no_ball_movement
                     and self._state.steps_no_ball_movement >= self.max_steps_no_ball_movement)
                 or self._ball_is_out_of_bounds()
-                or self._ball_is_in_goal(TeamId.LEFT)
-                or self._ball_is_in_goal(TeamId.RIGHT)
+                or self._ball_is_in_goal(ball_location, prev_ball_location, self._state.left_goal)
+                or self._ball_is_in_goal(ball_location, prev_ball_location, self._state.right_goal)
         )
 
     def _ball_is_out_of_bounds(self) -> bool:
@@ -381,27 +396,38 @@ class TeamSoccerEnv(Env):
                 or ball.location.y > self.field_size.height
         )
 
-    def _ball_is_in_opponent_goal(self, agent: TeamSoccerAgent) -> bool:
-        opponent_team = TeamId.LEFT if agent.id.team == TeamId.RIGHT else TeamId.RIGHT
-        return self._ball_is_in_goal(opponent_team)
+    def _ball_is_in_opponent_goal(
+            self,
+            ball_location: Location2D,
+            prev_ball_location: Location2D,
+            agent: TeamSoccerAgent,
+    ) -> bool:
+        goal = self._state.right_goal if agent.id.team == TeamId.LEFT else self._state.left_goal
+        return self._ball_is_in_goal(ball_location, prev_ball_location, goal)
 
-    def _ball_is_in_team_goal(self, agent: TeamSoccerAgent) -> bool:
-        return self._ball_is_in_goal(agent.id.team)
+    def _ball_is_in_team_goal(
+            self,
+            ball_location: Location2D,
+            prev_ball_location: Location2D,
+            agent: TeamSoccerAgent,
+    ) -> bool:
+        goal = self._state.left_goal if agent.id.team == TeamId.LEFT else self._state.right_goal
+        return self._ball_is_in_goal(ball_location, prev_ball_location, goal)
 
-    def _ball_is_in_goal(self, team: TeamId) -> bool:
-        ball = self._state.ball
+    def _ball_is_in_goal(
+            self,
+            ball_location: Location2D,
+            prev_ball_location: Location2D,
+            goal: Goal,
+    ) -> bool:
+        ball_travel_line = LineString([
+            tuple(prev_ball_location),
+            tuple(ball_location),
+        ])
 
-        # TODO Make this better
-        goal_depth = 0.5
-        if team == TeamId.LEFT:
-            goal = self._state.left_goal
-            return (
-                    ball.location.x <= goal_depth
-                    and goal.left_post_location.y <= ball.location.y <= goal.right_post_location.y
-            )
-        else:
-            goal = self._state.right_goal
-            return (
-                    ball.location.x >= self.field_size.width - goal_depth
-                    and goal.left_post_location.y >= ball.location.y >= goal.right_post_location.y
-            )
+        goal_line = LineString([
+            tuple(goal.left_post_location),
+            tuple(goal.right_post_location),
+        ])
+
+        return ball_travel_line.intersects(goal_line)

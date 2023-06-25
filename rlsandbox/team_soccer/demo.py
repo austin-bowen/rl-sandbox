@@ -85,92 +85,10 @@ def main(pool):
         # max_steps_no_ball_movement=50,
     )
 
-    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=20, scale=20)
+    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=15, scale=20)
 
     agent = ANNTeamSoccerAgent(obs_dim=24)
-
-    best_agents = [agent]
-    opponent = deepcopy(agent)
-    opponent_update_delay = 50
-
-    agent_mux = OneAgentPerTeamMux(left_agent=opponent, right_agent=agent)
-    multi_agent = MultiAgent(agent_mux)
-
-    games_per_eval = 64
-
-    new_bests_found = 0
-
-    with Monitor(monitor_env, env_renderer, update_agent_on='step') as monitor:
-        monitor.set_agent(multi_agent)
-
-        for gens in count():
-            print(f'Generation {gens}')
-
-            opponent_index = max(0, new_bests_found - opponent_update_delay)
-            opponent = deepcopy(best_agents[opponent_index])
-            agent_mux.left_agent = opponent
-            monitor.set_agent(multi_agent)
-
-            # if gens % opponent_update_period == 0:
-            #     opponent = deepcopy(agent)
-            #     agent_mux.left_agent = opponent
-            #     monitor.set_agent(multi_agent)
-
-            new_agent = mutate_agent(agent)
-
-            scores = pool.starmap(evaluate_agent, ((env, opponent, agent, new_agent) for _ in range(games_per_eval)))
-            scores.reverse()
-            reward_decay = 0.99
-            agent_reward = sum(reward_decay ** i * score[0] for i, score in enumerate(scores)) / games_per_eval
-            new_agent_reward = sum(reward_decay ** i * score[1] for i, score in enumerate(scores)) / games_per_eval
-            # agent_reward = tuple(agent_reward)
-            # new_agent_reward = tuple(new_agent_reward)
-
-            # new_agent_wins = sum(
-            #     tuple(score[1]) >= tuple(score[0]) for score in scores
-            # )
-            # agent_wins = games_per_eval - new_agent_wins
-
-            print(
-                f'Agent reward: {agent_reward};\t'
-                f'new agent reward: {new_agent_reward};\t'
-                # f'agent wins: {agent_wins};\t'
-                # f'new agent wins: {new_agent_wins};\t'
-                f'new bests found: {new_bests_found};\t'
-            )
-
-            if new_agent_reward >= agent_reward:
-                # if new_agent_wins > agent_wins:
-                # if new_agent_reward >= agent_reward and new_agent_wins >= agent_wins:
-                new_bests_found += 1
-                best_agents.append(new_agent)
-
-                agent = new_agent
-
-                agent_mux.right_agent = agent
-                monitor.set_agent(multi_agent)
-
-
-def main_direct_compare(pool):
-    field_size = Size2D(40, 20)
-    env = TeamSoccerEnv(
-        field_size=field_size,
-        left_team_size=2,
-        right_team_size=2,
-        max_steps=200,
-        max_steps_no_ball_movement=50,
-    )
-
-    monitor_env = TeamSoccerEnv(
-        field_size=Size2D(40, 20),
-        left_team_size=env.left_team_size,
-        right_team_size=env.right_team_size,
-        # max_steps_no_ball_movement=50,
-    )
-
-    env_renderer = TeamSoccerEnvRenderer(monitor_env, fps=20, scale=20)
-
-    agent = ANNTeamSoccerAgent(obs_dim=24)
+    agent.model.requires_grad_(False)
 
     agent_mux = OneAgentPerTeamMux(left_agent=agent, right_agent=agent)
     multi_agent = MultiAgent(agent_mux)
@@ -224,27 +142,27 @@ def main_direct_compare(pool):
 
 
 def mutate_agent(agent: ANNTeamSoccerAgent):
-    new_agent = ANNTeamSoccerAgent(obs_dim=agent.model.obs_dim)
+    agent = deepcopy(agent)
 
     weight_change = 0.08
     max_weight = 10
     weight_decay = max_weight / (max_weight + weight_change)
     dropout = 0.
 
-    for layer, new_layer in zip(agent.model.layers, new_agent.model.layers):
+    for layer in agent.model.layers:
         if not isinstance(layer, nn.Linear):
             continue
 
         change = weight_change * (2 * torch.rand(layer.weight.shape) - 1)
         change = nn.functional.dropout(change, p=dropout)
-        new_layer.weight = nn.Parameter((layer.weight + change) * weight_decay)
+        layer.weight = nn.Parameter((layer.weight + change) * weight_decay)
 
         if layer.bias is not None:
             change = weight_change * (2 * torch.rand(layer.bias.shape) - 1)
             change = nn.functional.dropout(change, p=dropout)
-            new_layer.bias = nn.Parameter((layer.bias + change) * weight_decay)
+            layer.bias = nn.Parameter((layer.bias + change) * weight_decay)
 
-    return new_agent
+    return agent
 
 
 def evaluate_agent(env, opponent, best_agent, new_agent) -> Tuple[Reward, Reward]:
@@ -333,4 +251,4 @@ def evaluate_agent2(
 
 if __name__ == '__main__':
     with get_context('forkserver').Pool() as pool:
-        main_direct_compare(pool)
+        main(pool)

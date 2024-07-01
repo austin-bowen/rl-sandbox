@@ -1,0 +1,23 @@
+# To pickup changes: conda env update
+name: rl-sandbox
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+dependencies:
+  - python=3.12
+  - pytorch
+  - pytorch-cuda=12.1
+
+  - pip
+  - pip:
+    - gymnasium[box2d]  # First, `pip install swig`, and `conda install -c conda-forge libstdcxx-ng`
+    - numpy
+    - pygame
+    - scikit-learn
+    - scipy
+    # MLflow and deps
+    - mlflow
+    - setuptools
+    - psutil
+    - pynvml

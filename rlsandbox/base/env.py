@@ -6,7 +6,7 @@ __all__ = [
 from abc import abstractmethod
 from typing import Protocol
 
-from rlsandbox.base import State, Action, StateChange
+from rlsandbox.base.sar import State, Action, StateChange
 
 
 class Env(Protocol):

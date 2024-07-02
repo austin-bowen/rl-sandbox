@@ -4,7 +4,7 @@ __all__ = [
 
 from abc import abstractmethod
 
-from rlsandbox.base import State, Action
+from rlsandbox.base.sar import State, Action
 
 
 class Agent:

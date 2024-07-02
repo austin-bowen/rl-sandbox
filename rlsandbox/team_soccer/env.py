@@ -30,7 +30,6 @@ class TeamSoccerState:
     last_kicker: Optional['AgentId'] = None
     steps: int = 0
     steps_no_ball_movement: int = 0
-    done: bool = False
 
     @property
     def agents(self) -> List['TeamSoccerAgent']:
@@ -186,8 +185,6 @@ class TeamSoccerEnv(Env):
 
         self._state.steps += 1
         done = self._is_done(prev_state)
-        # TODO Remove this
-        self._state.done = done
 
         result = StateChange(
             state=prev_state,

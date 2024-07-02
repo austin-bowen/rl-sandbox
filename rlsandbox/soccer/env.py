@@ -18,7 +18,6 @@ class SoccerState:
     goal: 'Goal'
     steps: int = 0
     total_reward: float = np.zeros(2)
-    done: bool = False
 
 
 @dataclass
@@ -145,8 +144,6 @@ class SoccerEnv(Env):
         self._state.steps += 1
         self._state.total_reward += reward
         done = self._is_done()
-        # TODO Remove this
-        self._state.done = done
 
         result = StateChange(
             state=prev_state,

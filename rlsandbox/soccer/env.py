@@ -1,5 +1,5 @@
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import cos, sin, atan2, pi
 from random import Random
 
@@ -17,7 +17,7 @@ class SoccerState:
     ball: 'Ball'
     goal: 'Goal'
     steps: int = 0
-    total_reward: float = np.zeros(2)
+    total_reward: float = field(default_factory=lambda: np.zeros(2))
 
 
 @dataclass

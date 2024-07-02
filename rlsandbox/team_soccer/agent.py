@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from rlsandbox.base import Agent
+from rlsandbox.base.agent import Agent
 from rlsandbox.math import trunc_angle, unit_tanh
 from rlsandbox.soccer.env import SoccerAction
 from rlsandbox.team_soccer.env import AgentId, TeamSoccerState, TeamSoccerAgent as EnvTeamSoccerAgent, TeamId
@@ -104,7 +104,7 @@ class BaseTeamSoccerAgent(Agent):
     @staticmethod
     def _dist_to_closeness(dist: float) -> float:
         assert dist >= 0
-        return 2 ** (-dist)
+        return 2 ** -dist
 
 
 class SimpleTeamSoccerAgent(BaseTeamSoccerAgent):

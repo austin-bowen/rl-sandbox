@@ -8,7 +8,8 @@ from typing import List, Optional, Tuple, Dict
 import numpy as np
 from shapely import LineString
 
-from rlsandbox.base import Env, StateChange
+from rlsandbox.base import StateChange
+from rlsandbox.base.env import Env
 from rlsandbox.soccer.env import Ball, SoccerAction
 from rlsandbox.types import Size2D, Location2D, Velocity2D
 
@@ -184,13 +185,16 @@ class TeamSoccerEnv(Env):
         rewards = self._get_rewards(prev_state, actions)
 
         self._state.steps += 1
-        self._state.done = self._is_done(prev_state)
+        done = self._is_done(prev_state)
+        # TODO Remove this
+        self._state.done = done
 
         result = StateChange(
             state=prev_state,
             action=actions,
             reward=rewards,
             next_state=self._state,
+            done=done,
         )
 
         return result

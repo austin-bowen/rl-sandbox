@@ -9,7 +9,8 @@ import torch
 from torch import nn
 from torch.multiprocessing import get_context
 
-from rlsandbox.base import Agent, Reward
+from rlsandbox.base import Reward
+from rlsandbox.base.agent import Agent
 from rlsandbox.env_runner import EnvRunner
 from rlsandbox.monitor import Monitor
 from rlsandbox.team_soccer.agent import ANNTeamSoccerAgent, BaseTeamSoccerAgent

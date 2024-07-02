@@ -48,7 +48,7 @@ class TeamSoccerEnvRenderer(Pygame2DEnvRenderer):
         self.draw_state(state_change.next_state)
         y = self._draw_actions_and_rewards(state_change)
 
-        if state_change.state.done:
+        if state_change.done:
             time.sleep(3)
 
     def _draw_field(self, state: TeamSoccerState) -> None:

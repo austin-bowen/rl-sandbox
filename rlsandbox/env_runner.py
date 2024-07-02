@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-from rlsandbox.base import Agent, Env, State, StateChange
+from rlsandbox.base import State, StateChange
+from rlsandbox.base.env import Env
+from rlsandbox.base.agent import Agent
 from rlsandbox.base.renderer import EnvRenderer
 
 
@@ -21,10 +23,12 @@ class EnvRunner:
         state_changes = []
         state = self.reset()
 
-        while not state.done and not self._should_stop():
+        done = False
+        while not done and not self._should_stop():
             state_change = self.step(state)
             state_changes.append(state_change)
             state = state_change.next_state
+            done = state_change.done
 
         return state_changes
 

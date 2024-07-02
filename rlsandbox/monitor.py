@@ -4,7 +4,8 @@ from multiprocessing import Event, Queue
 from threading import Thread
 from typing import Optional, Literal
 
-from rlsandbox.base import Agent, Env
+from rlsandbox.base.env import Env
+from rlsandbox.base.agent import Agent
 from rlsandbox.base.renderer import EnvRenderer
 from rlsandbox.env_runner import EnvRunner
 
@@ -76,13 +77,16 @@ class Monitor(Thread):
 
             state = self.env.reset()
 
-            while not state.done and not self._stop_event.is_set():
+            done = False
+            while not done and not self._stop_event.is_set():
                 state_change = runner.step(state)
                 state = state_change.next_state
 
                 if self.update_agent_on == 'step':
                     self._update_agent()
                     runner.agent = self.agent
+
+                done = state_change.done
 
     def _update_agent(self) -> None:
         try:

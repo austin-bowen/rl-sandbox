@@ -5,7 +5,8 @@ from random import Random
 
 import numpy as np
 
-from rlsandbox.base import Env, StateChange
+from rlsandbox.base import StateChange
+from rlsandbox.base.env import Env
 from rlsandbox.types import Size2D, Location2D, Velocity2D
 
 
@@ -143,13 +144,16 @@ class SoccerEnv(Env):
 
         self._state.steps += 1
         self._state.total_reward += reward
-        self._state.done = self._is_done()
+        done = self._is_done()
+        # TODO Remove this
+        self._state.done = done
 
         result = StateChange(
             state=prev_state,
             action=action,
             reward=reward,
             next_state=self._state,
+            done=done,
         )
 
         return result

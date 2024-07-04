@@ -33,5 +33,9 @@ def sanitize_name(
     return name
 
 
-if __name__ == '__main__':
-    print(sanitize_name('this is a (test) name!'))
+class Wrapper:
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __getattr__(self, name):
+        return getattr(self.obj, name)

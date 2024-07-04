@@ -17,26 +17,8 @@ from rlsandbox.lunar_lander_mbrl.logging import log_code, log_metric, log_metric
 from rlsandbox.lunar_lander_mbrl.loss import NormalizedIfwBceWithLogitsLoss
 from rlsandbox.lunar_lander_mbrl.metrics import compute_metrics, compute_metrics_at_threshold
 from rlsandbox.lunar_lander_mbrl.model import LunarLanderWorldModel, LunarLanderValueModel
+from rlsandbox.lunar_lander_mbrl.optim import OptimizerWrapper
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape, every
-
-
-class Wrapper:
-    def __init__(self, obj):
-        self.obj = obj
-
-    def __getattr__(self, name):
-        return getattr(self.obj, name)
-
-
-class OptimizerWrapper(Wrapper):
-    @property
-    def lr(self) -> float:
-        return self.param_groups[0]['lr']
-
-    @lr.setter
-    def lr(self, value: float) -> None:
-        for param_group in self.param_groups:
-            param_group['lr'] = value
 
 
 def main() -> None:

@@ -210,7 +210,6 @@ class LunarLanderAgent:
         device = state.device
         actions = torch.tensor([0, 1, 2, 3], device=device)
         actions_4x = actions.repeat(4)
-        reward_stack = []
 
         pred_state = state.unsqueeze(0)
         pred_state = pred_state.repeat_interleave(4, dim=0)
@@ -220,7 +219,8 @@ class LunarLanderAgent:
         pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
         pred_reward = pred_reward.squeeze(1)
         pred_done = F.sigmoid(pred_done_logit.squeeze(1))
-        reward_stack.append(pred_reward)
+        reward_stack = [pred_reward]
+        done_stack = [pred_done]
 
         for depth_i in range(1, depth):
             pred_state = pred_state.repeat_interleave(4, dim=0)
@@ -252,12 +252,28 @@ class LunarLanderAgent:
             pred_reward *= reward_decay ** depth_i
             assert_shape(pred_reward, (4,))
 
+            pred_done = pred_done.reshape(4, 4)
+            pred_done = pred_done[range(4), best_actions]
+
             reward_stack.append(pred_reward)
+            done_stack.append(pred_done)
 
-        rewards = torch.stack(reward_stack)
-        assert_shape(rewards, (depth, 4))
+        use_done = 1
+        if use_done:
+            rewards = torch.zeros((4,), device=device)
 
-        rewards = torch.sum(rewards, dim=0)
+            rewards_backwards = reward_stack[::-1]
+            dones_backwards = done_stack[::-1]
+
+            for i in range(depth - 1):
+                rewards = (rewards_backwards[i] + rewards) * (1 - dones_backwards[i + 1])
+
+            rewards = rewards + rewards_backwards[-1]
+        else:
+            rewards = torch.stack(reward_stack)
+            assert_shape(rewards, (depth, 4))
+
+            rewards = torch.sum(rewards, dim=0)
         assert_shape(rewards, (4,))
 
         action = rewards.argmax().item()

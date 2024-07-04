@@ -13,8 +13,9 @@ from torch.optim import AdamW
 from rlsandbox.lunar_lander_mbrl.agent import LunarLanderAgent
 from rlsandbox.lunar_lander_mbrl.config import Config
 from rlsandbox.lunar_lander_mbrl.env import WithActionRepeats
+from rlsandbox.lunar_lander_mbrl.logging import log_code, log_metric, log_metrics
 from rlsandbox.lunar_lander_mbrl.loss import NormalizedIfwBceWithLogitsLoss
-from rlsandbox.lunar_lander_mbrl.metrics import compute_metrics
+from rlsandbox.lunar_lander_mbrl.metrics import compute_metrics, compute_metrics_at_threshold
 from rlsandbox.lunar_lander_mbrl.model import LunarLanderWorldModel, LunarLanderValueModel
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape, every
 
@@ -75,6 +76,7 @@ def _main(
         ),
         device: torch.device = torch.device('cuda'),
 ) -> None:
+    log_code()
     mlflow.log_params(dict(hp))
 
     env_name = 'LunarLander-v2'
@@ -110,6 +112,7 @@ def _main(
     state_loss_func_disc = NormalizedIfwBceWithLogitsLoss(reduction='none')
     reward_loss_func = regression_loss_class(reduction='none')
     done_loss_func = NormalizedIfwBceWithLogitsLoss(reduction='none')
+    # done_loss_func = BCEWithLogitsFocalLoss(gamma=2, reduction='none')
     value_loss_func = nn.L1Loss()
 
     optimizers = [
@@ -451,16 +454,39 @@ def get_model_loss(
 
     log_metric(f'{log_prefix}_model{model_i}', loss.item(), step=epoch_i)
 
-    for threshold in [0.05, 0.1, 0.5, 0.9]:
-        metrics = compute_metrics(
+    try:
+        log_model_done_metrics(
+            dataset_type,
+            model_i,
+            epoch_i,
             y_true=done.cpu().numpy(),
             y_pred=F.sigmoid(pred_done_logit.detach().squeeze(1)).cpu().numpy(),
-            threshold=threshold,
         )
-        for key, value in metrics.items():
-            log_metric(f'{dataset_type}_model{model_i}_done_{key}_threshold_{threshold}', value, step=epoch_i)
+    except ValueError as e:
+        print(repr(e))
 
     return loss, losses
+
+
+def log_model_done_metrics(
+        dataset_type: str,
+        model_i: int,
+        epoch_i: int,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+) -> None:
+    all_metrics = {}
+
+    metrics = compute_metrics(y_true, y_pred)
+    for key, value in metrics.items():
+        all_metrics[f'{dataset_type}_model{model_i}_done_{key}'] = value
+
+    for threshold in [.1, .3, .5, .7]:
+        metrics = compute_metrics_at_threshold(y_true, y_pred, threshold=threshold)
+        for key, value in metrics.items():
+            all_metrics[f'{dataset_type}_model{model_i}_done_{key}_threshold_{threshold}'] = value
+
+    log_metrics(all_metrics, step=epoch_i)
 
 
 def get_value_loss(
@@ -486,17 +512,3 @@ def get_value_loss(
 def get_game_sars_column(game_sars, column: int, device, dtype=torch.float32) -> Tensor:
     column = [row[column] for row in game_sars]
     return torch.tensor(column, dtype=dtype, device=device)
-
-
-def log_metric(key: str, value, step: int = None) -> None:
-    if step is None:
-        print(f'{key}={value}')
-    else:
-        print(f'{key}={value} (step={step})')
-
-    mlflow.log_metric(key, value, step=step)
-
-
-def log_metrics(metrics: dict[str, ...], step: int = None) -> None:
-    for key, value in metrics.items():
-        log_metric(key, value, step=step)

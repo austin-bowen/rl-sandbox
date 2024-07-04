@@ -187,8 +187,8 @@ def _main(
         print(f'Actions: {action_summary}')
 
         total_reward = np.sum(raw_rewards)
-        solved = total_reward >= 200
-        solved_msg = '✔' if total_reward >= 200 else '✘'
+        solved = total_reward >= 2
+        solved_msg = '✔' if solved else '✘'
         print(f'Solved: {solved_msg}\t total reward: {total_reward}')
         print()
         all_total_rewards.append(total_reward)

@@ -50,6 +50,16 @@ class LunarLanderAgent:
             pass
 
     def rollout(self, state: Tensor) -> tuple[int, float]:
+        if 1:
+            try:
+                self.__count += 1
+            except AttributeError:
+                self.__count = 1
+            count = self.__count
+
+            if random.random() > count / 10000:
+                return np.random.randint(0, 4), 0.0
+
         return self.rollout2(state)
 
     def rollout0(
@@ -193,20 +203,14 @@ class LunarLanderAgent:
     def rollout1(
             self,
             state: Tensor,
-            depth: int = 20,
+            depth: int = 10,
             reward_decay: float = .9,
+            use_value_model: bool = True,
+            value_model_weight: float = .1,
     ) -> tuple[int, float]:
-        if 1:
-            try:
-                self.__count += 1
-            except AttributeError:
-                self.__count = 1
-            count = self.__count
+        model_selector = lambda: self.random_model
 
-            if random.random() > count / 100000:
-                return np.random.randint(0, 4), 0.0
-
-        model = self.random_model
+        model = model_selector()
         device = state.device
         actions = torch.tensor([0, 1, 2, 3], device=device)
         actions_4x = actions.repeat(4)
@@ -219,6 +223,10 @@ class LunarLanderAgent:
         pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
         pred_reward = pred_reward.squeeze(1)
         pred_done = F.sigmoid(pred_done_logit.squeeze(1))
+
+        if use_value_model:
+            pred_reward += value_model_weight * self.value_model(pred_state)
+
         reward_stack = [pred_reward]
         done_stack = [pred_done]
 
@@ -226,10 +234,14 @@ class LunarLanderAgent:
             pred_state = pred_state.repeat_interleave(4, dim=0)
             assert_shape(pred_state, (4 * 4, state.shape[0]))
 
-            pred_state, pred_reward, pred_done_logit = self.random_model(pred_state, actions_4x)
+            model = model_selector()
+            pred_state, pred_reward, pred_done_logit = model(pred_state, actions_4x)
             pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
             pred_reward = pred_reward.squeeze(1)
             pred_done = F.sigmoid(pred_done_logit.squeeze(1))
+
+            if use_value_model:
+                pred_reward += value_model_weight * self.value_model(pred_state)
 
             pred_reward = pred_reward.reshape(4, 4)
 
@@ -289,7 +301,7 @@ class LunarLanderAgent:
     def rollout2(
             self,
             state: Tensor,
-            samples: int = 5,
+            samples: int = 9,
     ) -> tuple[int, float]:
         actions = [self.rollout1(state)[0] for _ in range(samples)]
 

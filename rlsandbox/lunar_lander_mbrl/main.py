@@ -12,7 +12,7 @@ from torch.optim import AdamW
 
 from rlsandbox.lunar_lander_mbrl.agent import LunarLanderAgent
 from rlsandbox.lunar_lander_mbrl.config import Config
-from rlsandbox.lunar_lander_mbrl.env import WithActionRepeats
+from rlsandbox.lunar_lander_mbrl.env import WithActionRepeats, TransformedLunarLanderEnv
 from rlsandbox.lunar_lander_mbrl.logging import log_code, log_metric, log_metrics
 from rlsandbox.lunar_lander_mbrl.loss import NormalizedIfwBceWithLogitsLoss
 from rlsandbox.lunar_lander_mbrl.metrics import compute_metrics, compute_metrics_at_threshold
@@ -45,7 +45,9 @@ def _main(
             env_gravity=-10,
             env_enable_wind=False,
             env_action_repeats=4,
-            neg_reward_gain=1.0,
+            env_max_y=1.75,
+            env_reward_limit=100.,
+            env_neg_reward_gain=1.0,
 
             # Training
             game_sars_history=1024 * 10,
@@ -70,7 +72,13 @@ def _main(
     train_env = WithActionRepeats(gym.make(env_name, **env_args), repeats=hp.env_action_repeats)
     watch_env = WithActionRepeats(gym.make(env_name, **env_args, render_mode='human'), repeats=hp.env_action_repeats)
     watch_env.metadata['render_fps'] = 999
-    # watch_env = train_env
+    watch_env = TransformedLunarLanderEnv(
+        watch_env,
+        max_y=hp.env_max_y,
+        reward_limit=hp.env_reward_limit,
+        neg_reward_gain=hp.env_neg_reward_gain,
+    )
+    train_env = watch_env
 
     models = [
         LunarLanderWorldModel().to(device)
@@ -127,7 +135,7 @@ def _main(
         should_watch = epoch_i >= 0  # 2000
         env = watch_env if should_watch else train_env
 
-        state, info = env.reset()
+        state = env.reset()
 
         raw_rewards = []
         tmp_game_sars = []
@@ -150,32 +158,22 @@ def _main(
             if every(100, step_i):
                 print()
 
-            next_state, reward, done, truncated, info = env.step(action)
-
-            # Kill if too high
-            if 1:
-                y = next_state[1].item()
-                if y >= 1.75:
-                    reward = -100.
-                    done = True
+            state_change = env.step(action)
+            reward = state_change.reward
+            next_state = state_change.next_state
+            done = state_change.done
 
             raw_rewards.append(reward)
-
-            reward_limit = 100.
-            reward = min(max(-reward_limit, reward), reward_limit)
-            reward /= reward_limit
-            if reward < 0:
-                reward *= hp.neg_reward_gain
 
             tmp_game_sars.append([
                 state,
                 action,
                 reward,
                 next_state,
-                1. if done or truncated else 0.,
+                1. if done else 0.,
             ])
 
-            if done or truncated:
+            if done:
                 break
 
             state = next_state

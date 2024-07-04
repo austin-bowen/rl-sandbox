@@ -1,3 +1,6 @@
+from rlsandbox.base import EnvTransformer, GymWrapper, State, StateChange
+
+
 class WithActionRepeats:
     def __init__(self, env, repeats: int = 1):
         self.env = env
@@ -31,3 +34,41 @@ class WithActionRepeats:
             return self.repeats
         else:
             return self.repeats[action]
+
+
+class TransformedLunarLanderEnv(EnvTransformer):
+    def __init__(
+            self,
+            wrapped_env,
+            max_y: float = None,
+            reward_limit: float = 100.,
+            neg_reward_gain: float = 1.,
+    ):
+        wrapped_env = GymWrapper(wrapped_env)
+        super().__init__(wrapped_env)
+
+        self.max_y = max_y
+        self.reward_limit = reward_limit
+        self.neg_reward_gain = neg_reward_gain
+
+    def transform_state(self, state: State) -> State:
+        return super().transform_state(state)
+
+    def transform_state_change(self, state_change: StateChange) -> StateChange:
+        reward = state_change.reward
+
+        y = state_change.next_state[1]
+        if self.max_y is not None and y >= self.max_y:
+            reward = -100.
+            state_change.done = True
+
+        reward_limit = self.reward_limit
+        reward = min(max(-reward_limit, reward), reward_limit)
+        reward /= reward_limit
+
+        if reward < 0:
+            reward *= self.neg_reward_gain
+
+        state_change.reward = reward
+
+        return state_change

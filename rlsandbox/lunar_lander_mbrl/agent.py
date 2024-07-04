@@ -193,7 +193,7 @@ class LunarLanderAgent:
     def rollout1(
             self,
             state: Tensor,
-            depth: int = 10,
+            depth: int = 20,
             reward_decay: float = .9,
     ) -> tuple[int, float]:
         if 1:
@@ -248,7 +248,11 @@ class LunarLanderAgent:
             pred_state = pred_state[range(4), best_actions]
             assert_shape(pred_state, (4, state.shape[0]))
 
-            pred_reward = pred_reward[range(4), best_actions]
+            reward_alpha = 1.
+            pred_reward = (
+                    reward_alpha * pred_reward.max(dim=1).values
+                    + (1 - reward_alpha) * pred_reward.min(dim=1).values
+            )
             pred_reward *= reward_decay ** depth_i
             assert_shape(pred_reward, (4,))
 
@@ -282,47 +286,10 @@ class LunarLanderAgent:
 
         return action, reward
 
-    def _get_agreement(self, model0_preds, model1_preds, prev_state) -> Tensor:
-        batch_size = model0_preds.size(0)
-
-        all_model_preds = [model0_preds, model1_preds]
-        all_model_preds = [torch.cat(it, dim=1) for it in all_model_preds]
-
-        pred_state_diff_and_reward = []
-        for all_preds in all_model_preds:
-            assert_shape(all_preds, (batch_size, 10))
-
-            # Convert leg logits to probabilities
-            all_preds[:, 6:8] = F.sigmoid(all_preds[:, 6:8])
-
-            all_preds = all_preds.clone()
-            all_preds[:, :6] -= prev_state[:, :6]
-            all_preds[:, 6:8] -= 0.5
-            all_preds[:, 9] -= 0.5
-
-            pred_state_diff_and_reward.append(all_preds)
-
-        # TODO remove?
-        # norm = torch.maximum(
-        #     torch.abs(pred_state_diff_and_reward[0]),
-        #     torch.abs(pred_state_diff_and_reward[1]),
-        # )
-        # pred_state_diff_and_reward[0] /= norm
-        # pred_state_diff_and_reward[1] /= norm
-
-        eps = 0
-        agreement = F.cosine_similarity(
-            pred_state_diff_and_reward[0] + eps,
-            pred_state_diff_and_reward[1] + eps,
-            dim=1,
-        )
-
-        return agreement
-
     def rollout2(
             self,
             state: Tensor,
-            samples: int = 10,
+            samples: int = 5,
     ) -> tuple[int, float]:
         actions = [self.rollout1(state)[0] for _ in range(samples)]
 

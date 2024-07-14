@@ -1,12 +1,12 @@
 from math import pi
+from typing import Iterable
 
 import torch
 from torch import nn, Tensor
 from torch.nn import Module, functional as F
 
-from rlsandbox.lunar_lander_mbrl.nn import linear_layers
+from rlsandbox.lunar_lander_mbrl.nn import linear_layers, ConcatTransformer
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape
-
 
 LunarLanderWorldModel = nn.Module
 
@@ -143,6 +143,8 @@ class MonoModel(LunarLanderWorldModel):
         self.state_end_index = self.reward_index = state_size
         self.done_index = self.reward_index + 1
 
+        self.feature_transformer = LunarLanderFeatureTransformer()
+
         activation_builders = [
             # nn.LeakyReLU,
             nn.ReLU,
@@ -151,7 +153,7 @@ class MonoModel(LunarLanderWorldModel):
 
         self.layers = nn.Sequential(
             *linear_layers(
-                state_size + action_size,
+                state_size + self.feature_transformer.addl_features + action_size,
                 256,
                 256,
                 # (state, reward, done)
@@ -177,8 +179,10 @@ class MonoModel(LunarLanderWorldModel):
                as a tensor of shape (N, 1).
         """
 
-        batch_size, _ = state.shape
+        batch_size = state.size(0)
         assert_shape(action, (batch_size,))
+
+        state = self.feature_transformer(state)
 
         mod_state = state.clone()
         mod_state[:, 4:6] /= pi
@@ -250,3 +254,22 @@ class LunarLanderValueModel(Module):
 
     def forward(self, state: Tensor) -> Tensor:
         return self.layers(state).squeeze(1)
+
+
+class LunarLanderFeatureTransformer(ConcatTransformer):
+    def __init__(self):
+        super().__init__()
+
+        self.addl_features = 2
+
+    def get_additional_features(self, batch: Tensor) -> Iterable[Tensor]:
+        angle = batch[:, 4]
+
+        features = [
+            torch.sin(angle),
+            torch.cos(angle),
+        ]
+
+        assert len(features) == self.addl_features, (len(features), self.addl_features)
+
+        return features

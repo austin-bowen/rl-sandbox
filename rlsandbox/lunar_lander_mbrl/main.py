@@ -436,37 +436,56 @@ def get_model_loss(
 
     log_metric(f'{log_prefix}_model{model_i}', loss.item(), step=epoch_i)
 
-    try:
-        log_model_done_metrics(
-            dataset_type,
-            model_i,
-            epoch_i,
-            y_true=done.cpu().numpy(),
-            y_pred=F.sigmoid(pred_done_logit.detach().squeeze(1)).cpu().numpy(),
-        )
-    except ValueError as e:
-        print(repr(e))
+    if model_i == 0:
+        try:
+            log_model_bin_class_metrics(
+                dataset_type,
+                model_i,
+                'done',
+                epoch_i,
+                y_true=done.cpu().numpy(),
+                y_pred=F.sigmoid(pred_done_logit.detach().squeeze(1)).cpu().numpy(),
+            )
+        except ValueError as e:
+            print(repr(e))
+
+        try:
+            true_leg_l = next_state[:, 6]
+            pred_leg_l_logit = pred_state[:, 6]
+
+            log_model_bin_class_metrics(
+                dataset_type,
+                model_i,
+                'leg_l',
+                epoch_i,
+                y_true=true_leg_l.cpu().numpy(),
+                y_pred=F.sigmoid(pred_leg_l_logit.detach()).cpu().numpy(),
+            )
+        except ValueError as e:
+            print(repr(e))
 
     return loss, losses
 
 
-def log_model_done_metrics(
+def log_model_bin_class_metrics(
         dataset_type: str,
         model_i: int,
+        feature: str,
         epoch_i: int,
         y_true: np.ndarray,
         y_pred: np.ndarray,
+        thresholds=(.1, .3, .5, .7),
 ) -> None:
     all_metrics = {}
 
     metrics = compute_metrics(y_true, y_pred)
     for key, value in metrics.items():
-        all_metrics[f'{dataset_type}_model{model_i}_done_{key}'] = value
+        all_metrics[f'{dataset_type}_model{model_i}_{feature}_{key}'] = value
 
-    for threshold in [.1, .3, .5, .7]:
+    for threshold in thresholds:
         metrics = compute_metrics_at_threshold(y_true, y_pred, threshold=threshold)
         for key, value in metrics.items():
-            all_metrics[f'{dataset_type}_model{model_i}_done_{key}_threshold_{threshold}'] = value
+            all_metrics[f'{dataset_type}_model{model_i}_{feature}_{key}_threshold_{threshold}'] = value
 
     log_metrics(all_metrics, step=epoch_i)
 

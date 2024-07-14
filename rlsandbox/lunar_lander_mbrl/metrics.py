@@ -1,8 +1,8 @@
 import numpy as np
 from sklearn.metrics import (
-    accuracy_score,
     average_precision_score,
     f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -10,9 +10,21 @@ from sklearn.metrics import (
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, ...]:
+    precision, recall, thresholds = precision_recall_curve(y_true, y_pred)
+    f1_scores = 2 * precision * recall / (precision + recall)
+    best_i = np.argmax(f1_scores)
+    best_precision = precision[best_i]
+    best_recall = recall[best_i]
+    best_f1_score = f1_scores[best_i]
+    best_threshold = thresholds[best_i]
+
     return dict(
         auc_roc=roc_auc_score(y_true, y_pred),
         avg_precision=average_precision_score(y_true, y_pred),
+        best_precision=best_precision,
+        best_recall=best_recall,
+        best_f1_score=best_f1_score,
+        best_threshold=best_threshold,
     )
 
 

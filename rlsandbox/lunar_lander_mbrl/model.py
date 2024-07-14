@@ -8,7 +8,18 @@ from rlsandbox.lunar_lander_mbrl.nn import linear_layers
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape
 
 
-class LunarLanderWorldModel(Module):
+LunarLanderWorldModel = nn.Module
+
+
+def get_world_model(
+        state_size: int = 8,
+        action_size: int = 4,
+) -> LunarLanderWorldModel:
+    # return MultiModel(state_size, action_size)
+    return MonoModel(state_size, action_size)
+
+
+class MultiModel(LunarLanderWorldModel):
     def __init__(
             self,
             state_size: int = 8,
@@ -100,6 +111,94 @@ class LunarLanderWorldModel(Module):
         assert_shape(next_state, (batch_size, self.state_size))
         assert_shape(done_logit, (batch_size, 1))
         assert_shape(reward, (batch_size, 1))
+
+        return next_state_with_logits, reward, done_logit
+
+    def print_params_stats(self) -> None:
+        for name, param in self.named_parameters():
+            self.print_param_stats(name, param)
+
+    def print_param_stats(self, name, param) -> None:
+        param_mean = param.mean().item()
+        param_std = param.std().item()
+        if param.grad is not None:
+            grad_mean = param.grad.mean().item()
+            grad_std = param.grad.std().item()
+            print(f'{name}\t: {param_mean:.3f} ± {param_std:.3f}; {grad_mean:.3f} ± {grad_std:.3f}')
+        else:
+            print(f'{name}\t: {param_mean:.3f} ± {param_std:.3f}')
+
+
+class MonoModel(LunarLanderWorldModel):
+    def __init__(
+            self,
+            state_size: int = 8,
+            action_size: int = 4,
+    ) -> None:
+        super().__init__()
+
+        self.state_size = state_size
+        self.action_size = action_size
+
+        self.state_end_index = self.reward_index = state_size
+        self.done_index = self.reward_index + 1
+
+        activation_builders = [
+            # nn.LeakyReLU,
+            nn.ReLU,
+            # lambda: nn.Dropout(p=0.5),
+        ]
+
+        self.layers = nn.Sequential(
+            *linear_layers(
+                state_size + action_size,
+                256,
+                256,
+                # (state, reward, done)
+                state_size + 1 + 1,
+                activation_builders=activation_builders,
+            )
+        )
+
+    def forward(self, state: Tensor, action: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """
+        Args:
+            state:
+                State batch of shape (N, S), dtype float.
+                S = (x, y, dx, dy, theta, dtheta, leg_l, leg_r)
+            action:
+                Action batch of shape (N,), dtype int.
+
+        Returns:
+            A three-tuple of:
+            0. Predicted next state tensor of shape (N, S);
+            1. The predicted step reward tensor of shape (N, 1); and
+            2. The predicted probability logit of the game ending
+               as a tensor of shape (N, 1).
+        """
+
+        batch_size, _ = state.shape
+        assert_shape(action, (batch_size,))
+
+        mod_state = state.clone()
+        mod_state[:, 4:6] /= pi
+
+        action = F.one_hot(action, num_classes=self.action_size)
+
+        state_and_action = torch.cat([mod_state, action], dim=1)
+
+        preds = self.layers(state_and_action)
+
+        next_state_with_logits = preds[:, :self.state_end_index]
+        next_state_with_logits[:, :6] += state[:, :6]
+
+        reward = preds[:, self.reward_index].unsqueeze(1)
+
+        done_logit = preds[:, self.done_index].unsqueeze(1)
+
+        assert_shape(next_state_with_logits, (batch_size, self.state_size))
+        assert_shape(reward, (batch_size, 1))
+        assert_shape(done_logit, (batch_size, 1))
 
         return next_state_with_logits, reward, done_logit
 

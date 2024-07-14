@@ -16,7 +16,7 @@ from rlsandbox.lunar_lander_mbrl.env import WithActionRepeats, TransformedLunarL
 from rlsandbox.lunar_lander_mbrl.logging import log_code, log_metric, log_metrics
 from rlsandbox.lunar_lander_mbrl.loss import NormalizedIfwBceWithLogitsLoss
 from rlsandbox.lunar_lander_mbrl.metrics import compute_metrics, compute_metrics_at_threshold
-from rlsandbox.lunar_lander_mbrl.model import LunarLanderWorldModel, LunarLanderValueModel
+from rlsandbox.lunar_lander_mbrl.model import get_world_model, LunarLanderValueModel
 from rlsandbox.lunar_lander_mbrl.optim import OptimizerWrapper
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape, every
 
@@ -52,6 +52,8 @@ def _main(
             # Training
             game_sars_history=1024 * 10,
             training_lr=0.001,
+            training_lr_decay=.5,
+            training_lr_decay_epochs=500,
             training_weight_decay=0.01,  # Default: 0.01
             max_batch_size=1024,
             value_model_max_items=1024 * 10,
@@ -81,7 +83,7 @@ def _main(
     train_env = watch_env
 
     models = [
-        LunarLanderWorldModel().to(device)
+        get_world_model().to(device)
         for _ in range(2)
     ]
 
@@ -239,8 +241,8 @@ def _main(
             optimizer = optimizers[model_i]
             game_sars = all_game_sars[model_i]
 
-            if every(500, epoch_i):
-                optimizer.lr = optimizer.lr * .5
+            if every(hp.training_lr_decay_epochs, epoch_i):
+                optimizer.lr = optimizer.lr * hp.training_lr_decay
             log_metric(f'optim_lr_model{model_i}', optimizer.lr, step=epoch_i)
 
             model.train()
@@ -356,8 +358,8 @@ def _main(
                 'train',
             )
 
-            if every(500, epoch_i):
-                value_optimizer.lr = value_optimizer.lr * .5
+            if every(hp.training_lr_decay_epochs, epoch_i):
+                value_optimizer.lr = value_optimizer.lr * hp.training_lr_decay
             log_metric(f'optim_lr_value', value_optimizer.lr, step=epoch_i)
 
             value_optimizer.zero_grad()

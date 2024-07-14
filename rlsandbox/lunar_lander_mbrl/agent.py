@@ -243,7 +243,7 @@ class LunarLanderAgent:
             if use_value_model:
                 pred_reward += value_model_weight * self.value_model(pred_state)
 
-            pred_reward = pred_reward.reshape(4, 4)
+            pred_reward = pred_reward.view(4, 4)
 
             best_actions = pred_reward.argmax(dim=1)
             # best_actions = torch.tensor([
@@ -256,7 +256,7 @@ class LunarLanderAgent:
             # best_actions = torch.multinomial(best_actions, num_samples=1).squeeze(1)
             assert_shape(best_actions, (4,))
 
-            pred_state = pred_state.reshape(4, 4, -1)
+            pred_state = pred_state.view(4, 4, -1)
             pred_state = pred_state[range(4), best_actions]
             assert_shape(pred_state, (4, state.shape[0]))
 
@@ -268,7 +268,7 @@ class LunarLanderAgent:
             pred_reward *= reward_decay ** depth_i
             assert_shape(pred_reward, (4,))
 
-            pred_done = pred_done.reshape(4, 4)
+            pred_done = pred_done.view(4, 4)
             pred_done = pred_done[range(4), best_actions]
 
             reward_stack.append(pred_reward)

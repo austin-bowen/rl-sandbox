@@ -1,13 +1,35 @@
+import heapq
 import random
 from collections import Counter
+from dataclasses import dataclass
+from itertools import count
 
 import numpy as np
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from rlsandbox.lunar_lander_mbrl.logging import log_metrics
 from rlsandbox.lunar_lander_mbrl.model import LunarLanderWorldModel
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape, printne
+
+
+class Stats:
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self.lookahead_depth = []
+
+    def emit(self, step: int = None) -> None:
+        metrics = dict()
+
+        if self.lookahead_depth:
+            metrics['agent_lookahead_depth'] = np.mean(self.lookahead_depth)
+
+        log_metrics(metrics, step=step)
+
+        self.reset()
 
 
 class LunarLanderAgent:
@@ -18,6 +40,7 @@ class LunarLanderAgent:
     ):
         self.world_models = world_models
         self.value_model = value_model
+        self.stats = Stats()
 
     @property
     def random_model(self) -> LunarLanderWorldModel:
@@ -60,7 +83,31 @@ class LunarLanderAgent:
             if random.random() > count / 10000:
                 return np.random.randint(0, 4), 0.0
 
-        return self.rollout2(state)
+        return self.multi_rollout(
+            state,
+            # rollout_func=self.rollout0,
+            rollout_func=self.rollout1,
+            # rollout_func=self.rollout_beam_search,
+        )
+
+    def multi_rollout(
+            self,
+            state: Tensor,
+            rollout_func,
+            samples: int = 9,
+    ) -> tuple[int, float]:
+        actions = [rollout_func(state)[0] for _ in range(samples)]
+
+        action_counter = Counter(actions)
+
+        action = action_counter.most_common(1)[0][0]
+
+        # action_counter = [action_counter[i] for i in range(4)]
+        # action_counter = torch.tensor(action_counter, dtype=torch.float16)
+        # action = F.softmax(action_counter, dim=0)
+        # action = torch.multinomial(action, 1).item()
+
+        return action, 0.0
 
     def rollout0(
             self,
@@ -204,6 +251,7 @@ class LunarLanderAgent:
             self,
             state: Tensor,
             depth: int = 10,
+            leg_threshold: float = None,
             reward_decay: float = .9,
             use_value_model: bool = True,
             value_model_weight: float = .1,
@@ -221,6 +269,8 @@ class LunarLanderAgent:
 
         pred_state, pred_reward, pred_done_logit = model(pred_state, actions)
         pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
+        if leg_threshold is not None:
+            pred_state[:, 6:8] = (pred_state[:, 6:8] > leg_threshold).float()
         pred_reward = pred_reward.squeeze(1)
         pred_done = F.sigmoid(pred_done_logit.squeeze(1))
 
@@ -237,6 +287,8 @@ class LunarLanderAgent:
             model = model_selector()
             pred_state, pred_reward, pred_done_logit = model(pred_state, actions_4x)
             pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
+            if leg_threshold is not None:
+                pred_state[:, 6:8] = (pred_state[:, 6:8] > leg_threshold).float()
             pred_reward = pred_reward.squeeze(1)
             pred_done = F.sigmoid(pred_done_logit.squeeze(1))
 
@@ -298,20 +350,78 @@ class LunarLanderAgent:
 
         return action, reward
 
-    def rollout2(
+    def rollout_beam_search(
             self,
             state: Tensor,
-            samples: int = 9,
+            beam_width: int = 32,
+            depth: int = None,
+            leg_threshold: float = None,
+            reward_decay: float = .9,
+            use_value_model: bool = True,
+            value_model_weight: float = .1,
     ) -> tuple[int, float]:
-        actions = [self.rollout1(state)[0] for _ in range(samples)]
+        @dataclass
+        class Hypothesis:
+            action: int
+            state: Tensor
+            reward: float
 
-        action_counter = Counter(actions)
+            def clone(self) -> 'Hypothesis':
+                return Hypothesis(
+                    action=self.action,
+                    state=self.state.clone(),
+                    reward=self.reward,
+                )
 
-        action = action_counter.most_common(1)[0][0]
+        device = state.device
 
-        # action_counter = [action_counter[i] for i in range(4)]
-        # action_counter = torch.tensor(action_counter, dtype=torch.float16)
-        # action = F.softmax(action_counter, dim=0)
-        # action = torch.multinomial(action, 1).item()
+        action_count = 4
+        action_options = torch.tensor(range(action_count), device=device)
 
-        return action, 0.0
+        model_selector = lambda: self.random_model
+
+        all_hypotheses = [Hypothesis(action=None, state=state, reward=0.)]
+
+        depth_i = -1
+        for depth_i in range(depth) if depth is not None else count():
+            new_hypotheses = []
+            for h in all_hypotheses:
+                for i in range(action_count):
+                    new_h = h.clone()
+                    if h.action is None:
+                        new_h.action = i
+                    new_hypotheses.append(new_h)
+            all_hypotheses = new_hypotheses
+
+            all_states = [h.state for h in all_hypotheses]
+            all_states = torch.stack(all_states)
+
+            actions = action_options.repeat(all_states.size(0) // action_count)
+
+            pred_state, pred_reward, pred_done = model_selector()(all_states, actions)
+            pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
+            if leg_threshold is not None:
+                pred_state[:, 6:8] = (pred_state[:, 6:8] > leg_threshold).float()
+            pred_reward = pred_reward.squeeze(1)
+            pred_done = F.sigmoid(pred_done.squeeze(1))
+
+            pred_state = pred_state.split(1, dim=0)
+            pred_reward = pred_reward.cpu().numpy()
+
+            for h, state, reward in zip(all_hypotheses, pred_state, pred_reward):
+                h.state = state.squeeze(0)
+                h.reward += reward * reward_decay ** depth_i
+
+            if len(all_hypotheses) > beam_width:
+                all_hypotheses = heapq.nlargest(beam_width, all_hypotheses, key=lambda h: h.reward)
+
+            first_action = all_hypotheses[0].action
+            only_one_action = all(h.action == first_action for h in all_hypotheses)
+            if only_one_action:
+                break
+
+        self.stats and self.stats.lookahead_depth.append(depth_i + 1)
+
+        best_hypothesis = max(all_hypotheses, key=lambda h: h.reward)
+
+        return best_hypothesis.action, best_hypothesis.reward

@@ -181,6 +181,7 @@ def _main(
             state = next_state
 
         log_metric('episode_steps', step_i, step=epoch_i)
+        agent.stats.emit(step=epoch_i)
 
         action_summary = Counter(it[1] for it in tmp_game_sars)
         action_summary = np.array([action_summary[i] for i in range(4)])

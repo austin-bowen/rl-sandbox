@@ -92,15 +92,15 @@ class LunarLanderAgent:
         return self.multi_rollout(
             state,
             # rollout_func=self.rollout0,
-            rollout_func=self.rollout1,
-            # rollout_func=self.rollout_beam_search,
+            # rollout_func=self.rollout1,
+            rollout_func=self.rollout_beam_search,
         )
 
     def multi_rollout(
             self,
             state: Tensor,
             rollout_func,
-            samples: int = 9,
+            samples: int = 1,
     ) -> tuple[int, float]:
         actions = [rollout_func(state)[0] for _ in range(samples)]
 

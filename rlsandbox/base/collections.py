@@ -2,32 +2,32 @@ from typing import Optional, Iterable
 
 
 class CircularList(list):
-    def __init__(self, items: Iterable = None, max_size: int = None):
+    def __init__(self, items: Iterable = None, max_len: int = None):
         super().__init__()
 
-        self._max_size = max_size
+        self._max_len = max_len
         self._next_index = 0
 
-        self._is_max_size = (
-            (lambda: False) if max_size is None else
-            (lambda: len(self) >= max_size)
+        self._is_max_len = (
+            (lambda: False) if max_len is None else
+            (lambda: len(self) >= max_len)
         )
 
         if items is not None:
             self.extend(items)
 
     @property
-    def is_max_size(self) -> bool:
-        return self._is_max_size()
+    def is_max_len(self) -> bool:
+        return self._is_max_len()
 
     @property
-    def max_size(self) -> Optional[int]:
-        return self._max_size
+    def max_len(self) -> Optional[int]:
+        return self._max_len
 
     def append(self, item) -> None:
-        if self.is_max_size:
+        if self.is_max_len:
             self[self._next_index] = item
-            self._next_index = (self._next_index + 1) % self.max_size
+            self._next_index = (self._next_index + 1) % self.max_len
         else:
             super().append(item)
 
@@ -49,4 +49,4 @@ class CircularList(list):
         self._next_index = 0
 
     def copy(self) -> 'CircularList':
-        return CircularList(self, max_size=self.max_size)
+        return CircularList(self, max_len=self.max_len)

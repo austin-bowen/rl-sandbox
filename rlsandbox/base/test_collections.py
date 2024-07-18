@@ -67,3 +67,16 @@ class TestCircularList(unittest.TestCase):
 
         self.list.extend([0, 1, 2, 3])
         self.assertListEqual([3, 1, 2], self.list)
+
+    def test_copy(self):
+        self.list.extend([0, 1, 2])
+
+        list_copy = self.list.copy()
+
+        self.assertListEqual(self.list, list_copy)
+        self.assertEqual(self.list.max_size, list_copy.max_size)
+        self.assertIsNot(list_copy, self.list)
+
+        list_copy.extend([3, 4, 5, 6])
+        self.assertListEqual([6, 4, 5], list_copy)
+        self.assertListEqual([0, 1, 2], self.list)

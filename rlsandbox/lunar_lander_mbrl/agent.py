@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from rlsandbox.base.utils import zip_require_same_len
 from rlsandbox.lunar_lander_mbrl.logging import log_metrics
 from rlsandbox.lunar_lander_mbrl.model import LunarLanderWorldModel
 from rlsandbox.lunar_lander_mbrl.utils import assert_shape, printne
@@ -20,6 +21,7 @@ class Stats:
 
     def reset(self) -> None:
         self.lookahead_depth = []
+        self.reward_value_ratio = []
 
     def emit(self, step: int = None) -> None:
         metrics = dict()
@@ -27,7 +29,11 @@ class Stats:
         if self.lookahead_depth:
             metrics['agent_lookahead_depth'] = np.mean(self.lookahead_depth)
 
-        log_metrics(metrics, step=step)
+        if self.reward_value_ratio:
+            metrics['agent_reward_value_ratio'] = np.mean(self.reward_value_ratio)
+
+        if metrics:
+            log_metrics(metrics, step=step)
 
         self.reset()
 
@@ -357,6 +363,7 @@ class LunarLanderAgent:
             depth: int = None,
             leg_threshold: float = None,
             reward_decay: float = .9,
+            use_done: bool = False,
             use_value_model: bool = True,
             value_model_weight: float = .1,
     ) -> tuple[int, float]:
@@ -365,12 +372,14 @@ class LunarLanderAgent:
             action: int
             state: Tensor
             reward: float
+            not_done: float = 1.
 
             def clone(self) -> 'Hypothesis':
                 return Hypothesis(
                     action=self.action,
                     state=self.state.clone(),
                     reward=self.reward,
+                    not_done=self.not_done,
                 )
 
         device = state.device
@@ -405,12 +414,26 @@ class LunarLanderAgent:
             pred_reward = pred_reward.squeeze(1)
             pred_done = F.sigmoid(pred_done.squeeze(1))
 
+            if use_value_model:
+                pred_value = value_model_weight * self.value_model(pred_state)
+                pred_reward += pred_value
+                self.stats.reward_value_ratio.append((pred_reward / pred_value).mean().item())
+
             pred_state = pred_state.split(1, dim=0)
             pred_reward = pred_reward.cpu().numpy()
+            pred_not_done = (1 - pred_done).cpu().numpy()
 
-            for h, state, reward in zip(all_hypotheses, pred_state, pred_reward):
+            for h, state, reward, not_done in zip_require_same_len(
+                    all_hypotheses,
+                    pred_state,
+                    pred_reward,
+                    pred_not_done,
+            ):
                 h.state = state.squeeze(0)
-                h.reward += reward * reward_decay ** depth_i
+                h.reward += reward * (reward_decay ** depth_i) * h.not_done
+
+                if use_done:
+                    h.not_done *= not_done
 
             if len(all_hypotheses) > beam_width:
                 all_hypotheses = heapq.nlargest(beam_width, all_hypotheses, key=lambda h: h.reward)

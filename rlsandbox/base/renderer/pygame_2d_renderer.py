@@ -98,7 +98,7 @@ class Pygame2DEnvRenderer(EnvRenderer):
             font: str = None,
             bold: bool = False,
             italic: bool = False,
-            size: int = 20,
+            size: int = 30,
             antialias: bool = True,
             color: Tuple = BLACK,
             background_color: Tuple = None,

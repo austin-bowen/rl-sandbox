@@ -336,7 +336,7 @@ def _main(
 
         # Train value model
         if 1:
-            game_sars = all_game_sars[0] + all_game_sars[1]
+            game_sars = all_train_game_sars[0] + all_train_game_sars[1]
 
             if 1:
                 game_sars = random.sample(game_sars, min(len(game_sars), hp.max_batch_size))

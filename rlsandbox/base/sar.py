@@ -18,7 +18,7 @@ S = TypeVar('S', bound=State)
 A = TypeVar('A', bound=Action)
 
 
-@dataclass
+@dataclass(slots=True)
 class StateChange(Generic[S, A]):
     state: S
     action: A

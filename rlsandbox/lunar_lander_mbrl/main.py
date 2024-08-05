@@ -1,5 +1,6 @@
 import random
 from collections import Counter
+from typing import Optional
 
 import gymnasium as gym
 import mlflow
@@ -50,18 +51,18 @@ def _main(
             env_neg_reward_gain=1.0,
 
             # Training
-            game_sars_history=1024 * 10,
+            game_sars_history=1024 * 20,
             training_lr=0.001,
             training_lr_decay=.5,
             training_lr_decay_epochs=500,
             training_weight_decay=0.01,  # Default: 0.01
             max_batch_size=1024,
-            value_model_max_items=1024 * 10,
             valid_frac=0.1,
-            max_valid_size=1024 * 10,
         ),
         device: torch.device = torch.device('cuda'),
 ) -> None:
+    hp.max_valid_size = round(hp.game_sars_history * hp.valid_frac)
+
     log_code()
     mlflow.log_params(dict(hp))
 
@@ -88,14 +89,6 @@ def _main(
     ]
 
     value_model = LunarLanderValueModel().to(device)
-    # value_model = SklearnKnnRegressor(
-    #     max_items=hp.value_model_max_items,
-    #     n_neighbors=20,  # Default: 5
-    #     weights='distance',  # Default: 'uniform'
-    #     algorithm='auto',  # Default: 'auto'
-    #     p=2,  # Default: 2
-    #     n_jobs=-1,  # Default: None
-    # )
 
     agent = LunarLanderAgent(models, value_model)
 
@@ -121,7 +114,7 @@ def _main(
         weight_decay=hp.training_weight_decay,
     ))
 
-    all_game_sars = [[], []]
+    all_train_game_sars = [[], []]
     valid_game_sars = []
     all_total_rewards = []
     all_solved = []
@@ -131,7 +124,7 @@ def _main(
 
         # model_i = epoch_i % len(models)
         model_i = random.randint(0, 1)
-        game_sars = all_game_sars[model_i]
+        game_sars = all_train_game_sars[model_i]
 
         # should_watch = every(20, epoch_i)
         should_watch = epoch_i >= 0  # 2000
@@ -209,23 +202,21 @@ def _main(
         )
 
         if 1:
-            # inputs = np.vstack([it[0] for it in tmp_game_sars])
-
             values = [it[2] for it in reversed(tmp_game_sars)]
             values = np.cumsum(values)
             values = values[::-1]
             for sars, value in zip(tmp_game_sars, values):
                 sars.append(value)
 
-            # value_model.add(inputs, values)
-
         # Add to validation set
-        if 1:
+        if hp.valid_frac is not None and hp.valid_frac > 0:
             valid_sars_indices = set(random.sample(
                 range(len(tmp_game_sars)),
                 int(len(tmp_game_sars) * hp.valid_frac),
             ))
+
             tmp_valid_sars = [tmp_game_sars[i] for i in valid_sars_indices]
+
             valid_game_sars.extend(tmp_valid_sars)
             valid_game_sars = valid_game_sars[-hp.max_valid_size:]
             log_metric('valid_game_sars_len', len(valid_game_sars), step=epoch_i)
@@ -236,11 +227,11 @@ def _main(
 
         epoch_losses = []
         agent.train()
-        for model_i in (range(len(models)) if all(all_game_sars) else []):
+        for model_i in (range(len(models)) if all(all_train_game_sars) else []):
             # if 1 or len(game_sars) >= hp.game_sars_history:
             model = models[model_i]
             optimizer = optimizers[model_i]
-            game_sars = all_game_sars[model_i]
+            game_sars = all_train_game_sars[model_i]
 
             if every(hp.training_lr_decay_epochs, epoch_i):
                 optimizer.lr = optimizer.lr * hp.training_lr_decay
@@ -248,7 +239,7 @@ def _main(
 
             model.train()
             loss, losses = get_model_loss(
-                hp,
+                hp.max_batch_size,
                 device,
                 epoch_i,
                 model,
@@ -271,7 +262,7 @@ def _main(
             if every(10, epoch_i):
                 model.eval()
                 get_model_loss(
-                    hp,
+                    None,
                     device,
                     epoch_i,
                     model,
@@ -285,7 +276,7 @@ def _main(
                 )
 
             keep_worst = 3
-            game_sars = all_game_sars[model_i]
+            game_sars = all_train_game_sars[model_i]
             if keep_worst and len(game_sars) > hp.game_sars_history:
                 # Randomly choose based on loss
                 if keep_worst == 1:
@@ -334,7 +325,7 @@ def _main(
                 print('p_neg:', p_neg)
 
             game_sars = game_sars[-hp.game_sars_history:]
-            all_game_sars[model_i] = game_sars
+            all_train_game_sars[model_i] = game_sars
             log_metric('game_sars_len', len(game_sars), step=epoch_i)
 
             avg_loss = sum(epoch_losses) / len(epoch_losses)
@@ -380,14 +371,14 @@ def _main(
 
         # Save models to MLflow
         if every(100, epoch_i):
-            for model_i, model in enumerate(models):
-                mlflow.pytorch.log_model(model, f'model_{model_i}')
+            for i, model in enumerate(models):
+                mlflow.pytorch.log_model(model, f'model_{i}')
 
             mlflow.pytorch.log_model(value_model, 'value_model')
 
 
 def get_model_loss(
-        hp,
+        max_batch_size: Optional[int],
         device,
         epoch_i,
         model,
@@ -399,8 +390,8 @@ def get_model_loss(
         done_loss_func,
         dataset_type: str,
 ):
-    if hp.max_batch_size is not None:
-        game_sars = random.sample(game_sars, min(len(game_sars), hp.max_batch_size))
+    if max_batch_size is not None:
+        game_sars = random.sample(game_sars, min(len(game_sars), max_batch_size))
 
     state = get_game_sars_column(game_sars, 0, device)
     action = get_game_sars_column(game_sars, 1, device, dtype=torch.int64)
@@ -475,7 +466,8 @@ def log_model_bin_class_metrics(
         epoch_i: int,
         y_true: np.ndarray,
         y_pred: np.ndarray,
-        thresholds=(.1, .3, .5, .7),
+        # thresholds=(.1, .3, .5, .7),
+        thresholds=None,
 ) -> None:
     all_metrics = {}
 
@@ -483,7 +475,7 @@ def log_model_bin_class_metrics(
     for key, value in metrics.items():
         all_metrics[f'{dataset_type}_model{model_i}_{feature}_{key}'] = value
 
-    for threshold in thresholds:
+    for threshold in (thresholds or []):
         metrics = compute_metrics_at_threshold(y_true, y_pred, threshold=threshold)
         for key, value in metrics.items():
             all_metrics[f'{dataset_type}_model{model_i}_{feature}_{key}_threshold_{threshold}'] = value

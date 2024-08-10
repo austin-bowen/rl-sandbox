@@ -10,9 +10,12 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch import nn
 from torch.optim import AdamW
+from torch.utils.data import DataLoader
 
 from rlsandbox.lunar_lander_mbrl.agent import LunarLanderAgent
 from rlsandbox.lunar_lander_mbrl.config import Config
+from rlsandbox.lunar_lander_mbrl.dataset import RandomDropDataset, ExtendedStateChange, OnlyStateAndRewardSumDataset, \
+    StateChangeDataset
 from rlsandbox.lunar_lander_mbrl.env import WithActionRepeats, TransformedLunarLanderEnv
 from rlsandbox.lunar_lander_mbrl.logging import log_code, log_metric, log_metrics
 from rlsandbox.lunar_lander_mbrl.loss import NormalizedIfwBceWithLogitsLoss
@@ -114,8 +117,12 @@ def _main(
         weight_decay=hp.training_weight_decay,
     ))
 
-    all_train_game_sars = [[], []]
-    valid_game_sars = []
+    dataset_class = RandomDropDataset
+    all_train_game_sars = [
+        dataset_class(max_len=hp.game_sars_history, device=device),
+        dataset_class(max_len=hp.game_sars_history, device=device),
+    ]
+    valid_game_sars = dataset_class(max_len=hp.max_valid_size, device=device)
     all_total_rewards = []
     all_solved = []
 
@@ -160,13 +167,13 @@ def _main(
 
             raw_rewards.append(reward)
 
-            tmp_game_sars.append([
+            tmp_game_sars.append(ExtendedStateChange(
                 state,
                 action,
                 reward,
                 next_state,
                 1. if done else 0.,
-            ])
+            ))
 
             if done:
                 break
@@ -176,7 +183,7 @@ def _main(
         log_metric('episode_steps', step_i, step=epoch_i)
         agent.stats.emit(step=epoch_i)
 
-        action_summary = Counter(it[1] for it in tmp_game_sars)
+        action_summary = Counter(it.action for it in tmp_game_sars)
         action_summary = np.array([action_summary[i] for i in range(4)])
         action_summary = action_summary / action_summary.sum()
         print()
@@ -201,34 +208,36 @@ def _main(
             step=epoch_i,
         )
 
-        if 1:
-            values = [it[2] for it in reversed(tmp_game_sars)]
-            values = np.cumsum(values)
-            values = values[::-1]
-            for sars, value in zip(tmp_game_sars, values):
-                sars.append(value)
+        # Add values to game_sars
+        values = [it.reward for it in reversed(tmp_game_sars)]
+        values = np.cumsum(values)
+        values = values[::-1]
+        for sars, value in zip(tmp_game_sars, values):
+            sars.reward_sum = value
 
         # Add to validation set
         if hp.valid_frac is not None and hp.valid_frac > 0:
             valid_sars_indices = set(random.sample(
                 range(len(tmp_game_sars)),
-                int(len(tmp_game_sars) * hp.valid_frac),
+                round(len(tmp_game_sars) * hp.valid_frac),
             ))
 
             tmp_valid_sars = [tmp_game_sars[i] for i in valid_sars_indices]
 
             valid_game_sars.extend(tmp_valid_sars)
-            valid_game_sars = valid_game_sars[-hp.max_valid_size:]
             log_metric('valid_game_sars_len', len(valid_game_sars), step=epoch_i)
 
-            tmp_game_sars = [sars for i, sars in enumerate(tmp_game_sars) if i not in valid_sars_indices]
+            tmp_game_sars = [
+                sars for i, sars in enumerate(tmp_game_sars)
+                if i not in valid_sars_indices
+            ]
 
         game_sars.extend(tmp_game_sars)
+        log_metric('game_sars_len', len(game_sars), step=epoch_i)
 
         epoch_losses = []
         agent.train()
         for model_i in (range(len(models)) if all(all_train_game_sars) else []):
-            # if 1 or len(game_sars) >= hp.game_sars_history:
             model = models[model_i]
             optimizer = optimizers[model_i]
             game_sars = all_train_game_sars[model_i]
@@ -240,7 +249,6 @@ def _main(
             model.train()
             loss, losses = get_model_loss(
                 hp.max_batch_size,
-                device,
                 epoch_i,
                 model,
                 model_i,
@@ -263,7 +271,6 @@ def _main(
                 model.eval()
                 get_model_loss(
                     None,
-                    device,
                     epoch_i,
                     model,
                     model_i,
@@ -275,59 +282,6 @@ def _main(
                     dataset_type='valid',
                 )
 
-            keep_worst = 3
-            game_sars = all_train_game_sars[model_i]
-            if keep_worst and len(game_sars) > hp.game_sars_history:
-                # Randomly choose based on loss
-                if keep_worst == 1:
-                    # Keep max_steps_per_game sars samples with the highest losses
-                    keep_probs = F.softmax(losses.detach().mean(dim=1), dim=0).cpu().numpy()
-                    assert_shape(keep_probs, (len(game_sars),))
-
-                    indexes_to_keep = set(np.random.choice(
-                        range(len(game_sars)),
-                        size=hp.game_sars_history,
-                        replace=False,
-                        p=keep_probs,
-                    ))
-
-                # Keep the highest loss examples
-                elif keep_worst == 2:
-                    # Keep max_steps_per_game sars samples with the highest losses
-                    keep_probs = F.softmax(losses.detach().mean(dim=1), dim=0).cpu().numpy()
-                    assert_shape(keep_probs, (len(game_sars),))
-
-                    indexes_to_keep = enumerate(keep_probs)
-                    indexes_to_keep = sorted(indexes_to_keep, key=lambda _: _[1], reverse=True)
-                    indexes_to_keep = indexes_to_keep[:hp.game_sars_history]
-                    indexes_to_keep = {_[0] for _ in indexes_to_keep}
-
-                # Keep uniformly random examples
-                elif keep_worst == 3:
-                    indexes_to_keep = set(np.random.choice(
-                        range(len(game_sars)),
-                        size=hp.game_sars_history,
-                        replace=False,
-                    ))
-
-                else:
-                    raise ValueError(f'Invalid keep_worst={keep_worst}')
-
-                game_sars = [
-                    sars for i, sars in enumerate(game_sars)
-                    if i in indexes_to_keep
-                ]
-                assert len(game_sars) == hp.game_sars_history, len(game_sars)
-
-                p_pos = sum(it[2] > 0. for it in game_sars) / len(game_sars)
-                p_neg = sum(it[2] < 0. for it in game_sars) / len(game_sars)
-                print('p_pos:', p_pos)
-                print('p_neg:', p_neg)
-
-            game_sars = game_sars[-hp.game_sars_history:]
-            all_train_game_sars[model_i] = game_sars
-            log_metric('game_sars_len', len(game_sars), step=epoch_i)
-
             avg_loss = sum(epoch_losses) / len(epoch_losses)
             print(f'Epoch {epoch_i}: Avg loss = {avg_loss}')
 
@@ -336,15 +290,16 @@ def _main(
 
         # Train value model
         if 1:
-            game_sars = all_train_game_sars[0] + all_train_game_sars[1]
-
-            if 1:
-                game_sars = random.sample(game_sars, min(len(game_sars), hp.max_batch_size))
+            value_train_dataset = StateChangeDataset(device)
+            value_train_dataset.data = (
+                    all_train_game_sars[0].data +
+                    all_train_game_sars[1].data
+            )
 
             value_loss = get_value_loss(
+                hp.max_batch_size,
                 value_model,
-                game_sars,
-                device,
+                value_train_dataset,
                 value_loss_func,
                 epoch_i,
                 'train',
@@ -361,9 +316,9 @@ def _main(
             # Validate
             if every(10, epoch_i):
                 get_value_loss(
+                    None,
                     value_model,
                     valid_game_sars,
-                    device,
                     value_loss_func,
                     epoch_i,
                     'valid',
@@ -379,32 +334,29 @@ def _main(
 
 def get_model_loss(
         max_batch_size: Optional[int],
-        device,
         epoch_i,
         model,
         model_i,
-        game_sars,
+        game_sars: StateChangeDataset,
         state_loss_func_cont,
         state_loss_func_disc,
         reward_loss_func,
         done_loss_func,
         dataset_type: str,
 ):
-    if max_batch_size is not None:
-        game_sars = random.sample(game_sars, min(len(game_sars), max_batch_size))
+    if max_batch_size is None:
+        batch_size = len(game_sars)
+    else:
+        batch_size = min(max_batch_size, len(game_sars))
 
-    state = get_game_sars_column(game_sars, 0, device)
-    action = get_game_sars_column(game_sars, 1, device, dtype=torch.int64)
-    reward = get_game_sars_column(game_sars, 2, device)
-    next_state = get_game_sars_column(game_sars, 3, device)
-    done = get_game_sars_column(game_sars, 4, device)
+    data_loader = DataLoader(game_sars, batch_size=batch_size, shuffle=True)
+    state, action, reward, next_state, done = next(iter(data_loader))
 
     pred_state, pred_reward, pred_done_logit = model(state, action)
 
     state_loss_cont = state_loss_func_cont(pred_state[:, :6], next_state[:, :6])
     state_loss_disc = state_loss_func_disc(pred_state[:, 6:], next_state[:, 6:])
     state_loss = torch.cat([state_loss_cont, state_loss_disc], dim=1)
-    batch_size = len(game_sars)
     assert_shape(state_loss, (batch_size, 8))
 
     reward_loss = reward_loss_func(pred_reward, reward.unsqueeze(1))
@@ -484,15 +436,23 @@ def log_model_bin_class_metrics(
 
 
 def get_value_loss(
+        max_batch_size: Optional[int],
         value_model,
-        game_sars,
-        device,
+        game_sars: StateChangeDataset,
         value_loss_func,
         epoch_i,
         dataset_type: str,
 ):
-    state = get_game_sars_column(game_sars, 0, device)
-    value = get_game_sars_column(game_sars, 5, device)
+    game_sars = OnlyStateAndRewardSumDataset(game_sars)
+
+    if max_batch_size is None:
+        batch_size = len(game_sars)
+    else:
+        batch_size = min(max_batch_size, len(game_sars))
+
+    data_loader = DataLoader(game_sars, batch_size=batch_size, shuffle=True)
+
+    state, value = next(iter(data_loader))
 
     value_model.train()
     value_pred = value_model(state)

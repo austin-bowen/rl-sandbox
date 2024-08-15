@@ -8,6 +8,7 @@ dependencies:
   - python=3.12
   - pytorch
   - pytorch-cuda=12.1
+  - torchvision
 
   - pip
   - pip:

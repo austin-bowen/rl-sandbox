@@ -1,3 +1,10 @@
+from torch import Tensor
+
+
+def assert_is_binary(tensor: Tensor) -> None:
+    assert ((tensor == 0) | (tensor == 1)).all(), tensor
+
+
 def zip_require_same_len(*iterables):
     iterables = [iter(i) for i in iterables]
 

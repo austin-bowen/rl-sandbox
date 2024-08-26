@@ -7,7 +7,6 @@ from itertools import count
 import numpy as np
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 
 from rlsandbox.base.utils import zip_require_same_len
 from rlsandbox.walker.logging import log_metrics
@@ -49,14 +48,40 @@ class WalkerAgent:
         self.world_model = world_model
         self.value_model = value_model
         self.stats = Stats()
+        self.action_history = []
+
+    def reset(self) -> None:
+        self.action_history.clear()
 
     def get_action(
             self,
             state: Tensor,
+            unstick_after: int = 10,
     ) -> Action:
         action, reward = self.rollout(state)
 
-        return action
+        self.action_history.append(action)
+
+        should_choose_random_action = self._last_action_count() > unstick_after
+        if should_choose_random_action:
+            return self._random_action()
+        else:
+            return action
+
+    def _last_action_count(self) -> int:
+        last_action = self.action_history[-1]
+        count = 0
+
+        for action in reversed(self.action_history):
+            if not np.allclose(action, last_action):
+                break
+
+            count += 1
+
+        return count
+
+    def _random_action(self) -> Action:
+        return np.random.randint(low=0, high=2, size=4) * 2 - 1
 
     def eval(self) -> None:
         self.world_model.eval()
@@ -75,7 +100,7 @@ class WalkerAgent:
             pass
 
     def rollout(self, state: Tensor) -> tuple[Action, float]:
-        if 1:
+        if 0:
             try:
                 self.__count += 1
             except AttributeError:
@@ -83,7 +108,7 @@ class WalkerAgent:
             count = self.__count
 
             if random.random() > count / 10000:
-                action = np.random.randint(low=0, high=2, size=4) * 2 - 1
+                action = self._random_action()
                 return action, 0.0
 
         # return self.multi_rollout(
@@ -184,15 +209,9 @@ class WalkerAgent:
             actions = action_options.repeat(all_states_cont.size(0) // action_count, 1)
 
             world_model_input = WorldModelInput.from_value_model_input(value_model_input, actions)
-            pred: WorldModelOutput = self.world_model(world_model_input)
+            pred: WorldModelOutput = self.world_model.predict(world_model_input)
 
-            # pred_state[:, 6:8] = F.sigmoid(pred_state[:, 6:8])
-            # if leg_threshold is not None:
-            #     pred_state[:, 6:8] = (pred_state[:, 6:8] > leg_threshold).float()
-
-            pred.next_disc_state = F.sigmoid(pred.next_disc_state)
             pred_reward = pred.reward.squeeze(1)
-            pred_done = F.sigmoid(pred.done_logit.squeeze(1))
 
             if use_value_model:
                 pred_value = value_model_weight * self.value_model(value_model_input)
@@ -200,9 +219,10 @@ class WalkerAgent:
                 self.stats.reward_value_ratio.append((pred_reward / pred_value).mean().item())
 
             pred_state_cont = pred.next_cont_state.split(1, dim=0)
+            # pred_state_disc = pred.next_disc_state_thresholded.split(1, dim=0)
             pred_state_disc = pred.next_disc_state.split(1, dim=0)
             pred_reward = pred_reward.cpu().numpy()
-            pred_not_done = (1 - pred_done).cpu().numpy()
+            pred_not_done = (1 - pred.done_prob).cpu().numpy()
 
             for h, cont_state, disc_state, reward, not_done in zip_require_same_len(
                     all_hypotheses,

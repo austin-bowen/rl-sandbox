@@ -2,12 +2,12 @@ from dataclasses import dataclass
 from typing import Iterable
 
 import torch
-import torch.nn.functional as F
 from torch import nn, Tensor
 from torch.nn import Module
 
 from rlsandbox.base.utils import assert_is_binary
-from rlsandbox.walker.nn import linear_layers, ConcatTransformer
+from rlsandbox.lop.algos.cbp_linear import CBPLinear
+from rlsandbox.walker.nn import ConcatTransformer
 from rlsandbox.walker.utils import assert_shape
 
 WalkerWorldModel = nn.Module
@@ -111,6 +111,18 @@ class WorldModelOutput:
     done_logit: Tensor
     """The predicted probability logit of the game ending as a tensor of shape (N, 1)."""
 
+    next_disc_state_prob: Tensor = None
+    """The predicted next discrete state tensor as probabilities of shape (N, S_d)."""
+
+    next_disc_state_thresholded: Tensor = None
+    """Thresholded next_disc_state_prob as a tensor of shape (N, S_d)."""
+
+    done_prob: Tensor = None
+    """The predicted probability of the game ending as a tensor of shape (N, 1)."""
+
+    done_thresholded: Tensor = None
+    """Thresholded done_prob as a tensor of shape (N, 1)."""
+
 
 class MonoModel(WalkerWorldModel):
     def __init__(
@@ -125,6 +137,8 @@ class MonoModel(WalkerWorldModel):
         self.disc_state_size = disc_state_size
         self.total_state_size = cont_state_size + disc_state_size
         self.action_size = action_size
+
+        self.thresholds = {'disc': (.5, .5), 'done': .5}
 
         self.state_end_index = self.reward_index = self.total_state_size
         self.done_index = self.reward_index + 1
@@ -159,6 +173,27 @@ class MonoModel(WalkerWorldModel):
             nn.Linear(512 + self.context_size, self.total_state_size + 1 + 1),
         ])
 
+        act_type = 'relu'
+        self.activation = nn.ReLU()
+
+        self.cbp = nn.ModuleList([
+            CBPLinear(in_layer=self.layers[0], out_layer=self.layers[1], act_type=act_type),
+            CBPLinear(in_layer=self.layers[1], out_layer=self.layers[2], act_type=act_type),
+        ])
+
+    def predict(self, input: WorldModelInput) -> WorldModelOutput:
+        pred: WorldModelOutput = self(input)
+        device = pred.next_cont_state.device
+
+        pred.next_disc_state_prob = torch.sigmoid(pred.next_disc_state)
+        thresholds = torch.tensor(self.thresholds['disc'], device=device)
+        pred.next_disc_state_thresholded = (pred.next_disc_state_prob >= thresholds).float()
+
+        pred.done_prob = torch.sigmoid(pred.done_logit)
+        pred.done_thresholded = (pred.done_prob >= self.thresholds['done']).float()
+
+        return pred
+
     def forward(self, input: WorldModelInput) -> WorldModelOutput:
         batch_size = input.cont_state.size(0)
         assert_shape(input.cont_state, (batch_size, self.cont_state_size))
@@ -178,11 +213,13 @@ class MonoModel(WalkerWorldModel):
 
         # preds = self.layers(state_and_action)
         preds = self.layers[0](state_and_action)
-        preds = F.gelu(preds)
+        preds = self.activation(preds)
         preds = torch.cat([preds, state_and_action], dim=1)
+        preds = self.cbp[0](preds)
         preds = self.layers[1](preds)
-        preds = F.gelu(preds)
+        preds = self.activation(preds)
         preds = torch.cat([preds, state_and_action], dim=1)
+        preds = self.cbp[1](preds)
         preds = self.layers[2](preds)
 
         next_cont_state = preds[:, :self.cont_state_size]
@@ -259,6 +296,14 @@ class WalkerValueModel(Module):
             nn.Linear(256 + context_size, 1),
         ])
 
+        act_type = 'relu'
+        self.activation = nn.ReLU()
+
+        self.cbp = nn.ModuleList([
+            CBPLinear(in_layer=self.layers[0], out_layer=self.layers[1], act_type=act_type),
+            CBPLinear(in_layer=self.layers[1], out_layer=self.layers[2], act_type=act_type),
+        ])
+
     def forward(self, input: ValueModelInput) -> Tensor:
         state = torch.cat([input.cont_state, input.disc_state], dim=1)
 
@@ -267,11 +312,13 @@ class WalkerValueModel(Module):
         state = self.feature_transformer(state)
 
         pred = self.layers[0](state)
-        pred = F.gelu(pred)
+        pred = self.activation(pred)
         pred = torch.cat([pred, state], dim=1)
+        pred = self.cbp[0](pred)
         pred = self.layers[1](pred)
-        pred = F.gelu(pred)
+        pred = self.activation(pred)
         pred = torch.cat([pred, state], dim=1)
+        pred = self.cbp[0](pred)
         pred = self.layers[2](pred)
 
         return pred.squeeze(1)

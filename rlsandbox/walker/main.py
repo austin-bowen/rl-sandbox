@@ -18,7 +18,7 @@ from rlsandbox.walker.dataset import RandomDropDataset, ExtendedStateChange, Onl
 from rlsandbox.walker.env import WithActionRepeats, TransformedWalkerEnv
 from rlsandbox.walker.logging import log_code, log_metric, log_metrics
 from rlsandbox.walker.loss import NormalizedIfwBceWithLogitsLoss
-from rlsandbox.walker.metrics import compute_metrics, compute_metrics_at_threshold
+from rlsandbox.walker.metrics import compute_metrics, compute_metrics_at_threshold, get_threshold_with_highest_f1_score
 from rlsandbox.walker.model import get_world_model, WalkerValueModel, WorldModelInput, WorldModelOutput, ValueModelInput
 from rlsandbox.walker.optim import OptimizerWrapper
 from rlsandbox.walker.utils import assert_shape, every
@@ -68,6 +68,7 @@ def _main(
     env_name = 'BipedalWalker-v3'
     env_args = dict(
         max_episode_steps=hp.env_max_steps_per_game,
+        hardcore=False,
     )
     env = gym.make(env_name, **env_args, render_mode='human')
     env.metadata['render_fps'] = 999
@@ -112,6 +113,7 @@ def _main(
     for epoch_i in range(hp.epochs):
         print()
 
+        agent.reset()
         state = env.reset()
 
         raw_rewards = []
@@ -372,6 +374,23 @@ def get_world_model_loss(
     # except ValueError as e:
     #     print(repr(e))
 
+    next_state_disc_numpy = next_state.disc_state.detach().cpu().numpy()
+    pred_next_disc_state_numpy = torch.sigmoid(pred.next_disc_state.detach()).cpu().numpy()
+
+    if dataset_type == 'train':
+        best_thresholds = [
+            get_threshold_with_highest_f1_score(
+                next_state_disc_numpy[:, i],
+                pred_next_disc_state_numpy[:, i],
+            )[0]
+            for i in range(next_state_disc_numpy.shape[1])
+        ]
+        [
+            log_metric(f'{dataset_type}_world_model_disc_threshold_best_{i}', t, step=epoch_i)
+            for i, t in enumerate(best_thresholds)
+        ]
+        model.thresholds['disc'] = best_thresholds
+
     return loss, losses
 
 
@@ -383,7 +402,7 @@ def log_model_bin_class_metrics(
         y_pred: np.ndarray,
         # thresholds=(.1, .3, .5, .7),
         thresholds=None,
-) -> None:
+) -> dict:
     all_metrics = {}
 
     metrics = compute_metrics(y_true, y_pred)
@@ -396,6 +415,8 @@ def log_model_bin_class_metrics(
             all_metrics[f'{dataset_type}_world_model_{feature}_{key}_threshold_{threshold}'] = value
 
     log_metrics(all_metrics, step=epoch_i)
+
+    return all_metrics
 
 
 def get_value_loss(

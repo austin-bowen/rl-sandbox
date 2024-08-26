@@ -9,6 +9,21 @@ from sklearn.metrics import (
 )
 
 
+def get_threshold_with_highest_f1_score(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[float, float]:
+    """Returns a tuple of 0) the best threshold and 1) the best F1 score."""
+
+    if y_true.sum() <= 0:
+        raise ValueError('No positive samples in y_true')
+
+    precision, recall, thresholds = precision_recall_curve(y_true, y_pred)
+    f1_scores = 2 * precision * recall / (precision + recall + 1e-9)
+    best_i = np.argmax(f1_scores)
+    best_f1_score = f1_scores[best_i]
+    best_threshold = thresholds[best_i]
+
+    return best_threshold, best_f1_score
+
+
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, ...]:
     if y_true.sum() <= 0:
         raise ValueError('No positive samples in y_true')

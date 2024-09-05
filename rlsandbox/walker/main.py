@@ -83,6 +83,7 @@ def _main(
     value_model = WalkerValueModel().to(device)
 
     agent = WalkerAgent(world_model, value_model)
+    # agent = RandomAgentWrapper(agent)
 
     regression_loss_class = nn.L1Loss
     state_loss_func_cont = regression_loss_class(reduction='none')
@@ -378,18 +379,24 @@ def get_world_model_loss(
     pred_next_disc_state_numpy = torch.sigmoid(pred.next_disc_state.detach()).cpu().numpy()
 
     if dataset_type == 'train':
-        best_thresholds = [
-            get_threshold_with_highest_f1_score(
-                next_state_disc_numpy[:, i],
-                pred_next_disc_state_numpy[:, i],
-            )[0]
-            for i in range(next_state_disc_numpy.shape[1])
-        ]
-        [
-            log_metric(f'{dataset_type}_world_model_disc_threshold_best_{i}', t, step=epoch_i)
-            for i, t in enumerate(best_thresholds)
-        ]
-        model.thresholds['disc'] = best_thresholds
+        try:
+            best_thresholds = np.array([
+                get_threshold_with_highest_f1_score(
+                    next_state_disc_numpy[:, i],
+                    pred_next_disc_state_numpy[:, i],
+                )[0]
+                for i in range(next_state_disc_numpy.shape[1])
+            ])
+            prev_thresholds = np.array(model.thresholds['disc'])
+            alpha = .1
+            new_thresholds = alpha * best_thresholds + (1 - alpha) * prev_thresholds
+            [
+                log_metric(f'{dataset_type}_world_model_disc_threshold_best_{i}', t, step=epoch_i)
+                for i, t in enumerate(new_thresholds)
+            ]
+            model.thresholds['disc'] = new_thresholds
+        except Exception as e:
+            print(f'Error calculating best thresholds: {repr(e)}')
 
     return loss, losses
 

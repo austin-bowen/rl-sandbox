@@ -23,6 +23,7 @@ class Stats:
     def reset(self) -> None:
         self.lookahead_depth = []
         self.reward_value_ratio = []
+        self.random_action_prob = []
 
     def emit(self, step: int = None) -> None:
         metrics = dict()
@@ -33,13 +34,30 @@ class Stats:
         if self.reward_value_ratio:
             metrics['agent_reward_value_ratio'] = np.mean(self.reward_value_ratio)
 
+        if self.random_action_prob:
+            metrics['agent_random_action_prob'] = np.mean(self.random_action_prob)
+
         if metrics:
             log_metrics(metrics, step=step)
 
         self.reset()
 
 
-class WalkerAgent:
+class Agent:
+    def reset(self) -> None:
+        pass
+
+    def get_action(self, state: Tensor) -> Action:
+        raise NotImplementedError
+
+    def eval(self) -> None:
+        pass
+
+    def train(self) -> None:
+        pass
+
+
+class WalkerAgent(Agent):
     def __init__(
             self,
             world_model: WalkerWorldModel,
@@ -100,17 +118,6 @@ class WalkerAgent:
             pass
 
     def rollout(self, state: Tensor) -> tuple[Action, float]:
-        if 0:
-            try:
-                self.__count += 1
-            except AttributeError:
-                self.__count = 1
-            count = self.__count
-
-            if random.random() > count / 10000:
-                action = self._random_action()
-                return action, 0.0
-
         # return self.multi_rollout(
         #     state,
         #     rollout_func=self.rollout_beam_search,
@@ -251,3 +258,34 @@ class WalkerAgent:
         best_action = best_hypothesis.action.cpu().numpy()
 
         return best_action, best_hypothesis.reward
+
+
+class RandomAgentWrapper(Agent):
+    def __init__(self, agent: WalkerAgent, random_steps: int = 10000):
+        self.agent = agent
+        self.random_steps = random_steps
+        self.steps = 0
+
+    @property
+    def stats(self) -> Stats:
+        return self.agent.stats
+
+    def reset(self) -> None:
+        self.agent.reset()
+
+    def get_action(self, state: Tensor) -> Action:
+        if self.steps < self.random_steps:
+            random_prob = 1 - self.steps / self.random_steps
+            self.stats.random_action_prob.append(random_prob)
+
+            self.steps += 1
+            if random.random() < random_prob:
+                return self.agent._random_action()
+
+        return self.agent.get_action(state)
+
+    def eval(self) -> None:
+        self.agent.eval()
+
+    def train(self) -> None:
+        self.agent.train()
